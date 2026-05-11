@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ebmify"
+version = "0.1.0"
+description = "ebmify any model: a Bayesian last-layer posterior variance h(x) = phi(x)^T (Phi^T Phi + lambda*I)^-1 phi(x) is a ready-made energy function for OOD detection, density estimation, and Langevin sampling. Demos on 2D toy data, MNIST, and CIFAR."
+authors = [
+  { name = "Pak Lun Kevin Cheung" }
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "torch>=2.0",
+    "scipy",
+    "scikit-learn",
+    "matplotlib",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

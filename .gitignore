@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+.env
+
+# Data (fetched by download scripts)
+MNIST/
+cifar-10-batches-py/
+cifar-100-python/
+
+# Outputs and caches
+example/out/
+example/mnist/cache/
+example/cifar/cache/
