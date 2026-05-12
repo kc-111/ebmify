@@ -1,0 +1,32 @@
+[
+  {
+    "algorithm": "spectral_rank",
+    "budget": 5000,
+    "best_acc": 0.8028,
+    "best_ema_acc": 0.8308,
+    "final_ema_acc": 0.8304,
+    "epochs": 200,
+    "seed": 0,
+    "class_counts": [
+      482,
+      490,
+      507,
+      508,
+      486,
+      496,
+      522,
+      510,
+      496,
+      503
+    ],
+    "aux_lambdas": {
+      "spectral_coords": 0.0,
+      "bucket_ranks": 0.0,
+      "leverage_score": 0.0,
+      "home_bucket": 0.0,
+      "feature_distill": 0.0
+    },
+    "aux_active": [],
+    "runtime_sec": 275.3635311126709
+  }
+]

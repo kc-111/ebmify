@@ -203,8 +203,8 @@ def main() -> None:
 
     fig.tight_layout()
     suffix = f"_{args.tag}" if args.tag else ""
-    out_dir = REPO_ROOT / "example" / "out"
-    out_dir.mkdir(exist_ok=True)
+    out_dir = REPO_ROOT / "example" / "out" / "cifar"
+    out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"{args.dataset}_vae_langevin{suffix}.png"
     fig.savefig(out_path, dpi=120, bbox_inches="tight")
     print(f"\nSaved {out_path}")

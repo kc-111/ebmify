@@ -431,9 +431,9 @@ def main() -> None:
     fig.tight_layout()
     suffix = f"_{args.tag}" if args.tag else ""
     norm_suffix = "_norm" if args.normalize else ""
-    out = (REPO_ROOT / "example" / "out"
+    out = (REPO_ROOT / "example" / "out" / "cifar"
            / f"cifar10_ssl_resnet18{suffix}{norm_suffix}_ood_threshold.png")
-    out.parent.mkdir(exist_ok=True)
+    out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, dpi=120, bbox_inches="tight")
     print(f"\nsaved {out}")
 

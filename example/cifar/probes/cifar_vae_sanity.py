@@ -122,7 +122,8 @@ def main() -> None:
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"device = {device}")
-    out_dir = Path(__file__).resolve().parent.parent / "out"
+    out_dir = Path(__file__).resolve().parent.parent.parent / "out" / "cifar"
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     any_found = False
     for ds in ("cifar10", "cifar100"):

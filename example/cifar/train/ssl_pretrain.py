@@ -145,14 +145,23 @@ def forward(self, batch, stage):
     """Two-view forward.
 
     SSL loss is computed only when ``views`` is a list; otherwise we just
-    expose ``embedding`` for downstream (probe / eval) consumers.
+    expose ``embedding`` for downstream (probe / eval) consumers. If
+    ``self.ema_backbone`` is installed (by EMABackboneCallback with
+    probe=True), the embedding handed to probe callbacks is computed
+    from the EMA shadow under no_grad; SSL loss still uses raw
+    embeddings so backbone training is unchanged.
     """
     out: dict = {}
     views = _get_views_list(batch)
+    ema_bb = getattr(self, "ema_backbone", None)
 
     if views is None:
         emb = self.backbone(batch["image"])
-        out["embedding"] = emb
+        if ema_bb is not None:
+            with torch.no_grad():
+                out["embedding"] = ema_bb(batch["image"])
+        else:
+            out["embedding"] = emb
         out["projection"] = self.projector(emb)
         return out
 
@@ -173,8 +182,13 @@ def forward(self, batch, stage):
     loss = self.lambd * reg + (1.0 - self.lambd) * inv
     out["loss"] = loss
 
-    # Stack views for probe callbacks.
-    out["embedding"] = torch.cat(live_emb, dim=0)
+    # Stack views for probe callbacks; optionally route through EMA shadow.
+    if ema_bb is not None:
+        with torch.no_grad():
+            probe_emb = [ema_bb(v["image"]) for v in views]
+    else:
+        probe_emb = live_emb
+    out["embedding"] = torch.cat(probe_emb, dim=0)
     out["projection"] = torch.cat(live_z, dim=0)
     if "label" in views[0]:
         out["label"] = torch.cat([v["label"] for v in views], dim=0)
@@ -210,6 +224,91 @@ class SaveBackboneCallback(Callback):
         print(f"[save] backbone state dict -> {self.save_path}")
 
 
+class EMABackboneCallback(Callback):
+    """Maintain an EMA shadow of the backbone; save it at train_end.
+
+    Parameters (not buffers) are EMA-averaged each train batch via
+    ``torch.optim.swa_utils.AveragedModel``. At ``on_train_end`` we run
+    one un-augmented pass over view 0 of the train loader to recompute
+    BN running stats matched to the EMA parameters -- without this the
+    saved checkpoint's BN buffers are stuck at init and embeddings will
+    be garbage. Saved to ``save_path``; downstream probes can load it
+    by pointing ``--ssl-tag`` at the suffixed file.
+    """
+
+    def __init__(self, decay: float, save_path: Path, datamodule,
+                 probe: bool = False):
+        super().__init__()
+        if not 0.0 < decay < 1.0:
+            raise ValueError(f"ema decay must be in (0, 1); got {decay}")
+        self.decay = decay
+        self.save_path = Path(save_path)
+        self.datamodule = datamodule
+        self.probe = probe
+        self.ema: torch.optim.swa_utils.AveragedModel | None = None
+
+    def on_fit_start(self, trainer, pl_module):
+        d = self.decay
+
+        def avg_fn(avg, p, _):
+            return d * avg + (1.0 - d) * p
+
+        self.ema = torch.optim.swa_utils.AveragedModel(
+            pl_module.backbone, avg_fn=avg_fn,
+        )
+        if self.probe:
+            # Register as submodule so Lightning manages train/eval mode +
+            # device placement, and so forward() can find it on pl_module.
+            # The forward pass through this module during training also
+            # naturally updates its BN running stats -- so we can skip
+            # the post-hoc BN refresh.
+            pl_module.ema_backbone = self.ema.module
+            print(f"[ema] online probe will read embeddings from EMA "
+                  f"shadow (decay={d})")
+        else:
+            print(f"[ema] tracking backbone with decay={d}")
+
+    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
+        if self.ema is not None:
+            self.ema.update_parameters(pl_module.backbone)
+
+    @torch.no_grad()
+    def _refresh_bn(self, pl_module) -> None:
+        bn = [m for m in self.ema.modules()
+              if isinstance(m, nn.modules.batchnorm._BatchNorm)]
+        if not bn:
+            return
+        saved = [(m, m.momentum) for m in bn]
+        for m in bn:
+            m.reset_running_stats()
+            m.momentum = None  # cumulative average
+        self.ema.train()
+        device = pl_module.device
+        for batch in self.datamodule.train_dataloader():
+            views = _get_views_list(batch)
+            imgs = views[0]["image"] if views is not None else batch["image"]
+            self.ema(imgs.to(device, non_blocking=True))
+        for m, mom in saved:
+            m.momentum = mom
+
+    def on_train_end(self, trainer, pl_module):
+        if self.ema is None:
+            return
+        if not self.probe:
+            # EMA was never run during training -> its BN buffers are at
+            # init. Refresh by running one cumulative-mean pass over view 0
+            # of the train loader. With probe=True, BN tracked naturally
+            # via the probe forward, so this pass would only churn stats.
+            print("[ema] refreshing BN stats over view 0 of train loader ...")
+            self._refresh_bn(pl_module)
+        self.save_path.parent.mkdir(exist_ok=True, parents=True)
+        sd = self.ema.module.state_dict()
+        config = {"arch": "resnet18-spt-low-res", "emb_dim": EMB_DIM,
+                  "norm": "CIFAR10", "ema_decay": self.decay}
+        torch.save({"state_dict": sd, "config": config}, self.save_path)
+        print(f"[save] EMA backbone (decay={self.decay}) -> {self.save_path}")
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -234,6 +333,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--precision", default="16-mixed")
     p.add_argument("--tag", default="",
                    help="Tag appended to log/checkpoint paths.")
+    p.add_argument("--ema-decay", type=float, default=0.0, dest="ema_decay",
+                   help="If > 0, also track an EMA shadow of the backbone "
+                        "and save it to <cache>/cifar10_ssl_resnet18[_tag]_ema.pt. "
+                        "Typical: 0.999 (short runs), 0.9999 (long runs).")
+    p.add_argument("--probe-on-ema", action="store_true", dest="probe_on_ema",
+                   help="Route the online linear/kNN probes through the "
+                        "EMA backbone. Requires --ema-decay > 0. Logged "
+                        "probe metrics then reflect EMA-weight quality.")
     return p
 
 
@@ -291,7 +398,8 @@ def main() -> None:
         k=10,
     )
 
-    backbone_path = CACHE_DIR / f"cifar10_ssl_resnet18{('_' + args.tag) if args.tag else ''}.pt"
+    tag_suffix = ('_' + args.tag) if args.tag else ''
+    backbone_path = CACHE_DIR / f"cifar10_ssl_resnet18{tag_suffix}.pt"
     save_cb = SaveBackboneCallback(backbone_path)
 
     LOG_DIR.mkdir(exist_ok=True, parents=True)
@@ -301,10 +409,20 @@ def main() -> None:
     )
     logger = CSVLogger(save_dir=str(LOG_DIR), name=run_name, version="")
 
+    if args.probe_on_ema and not args.ema_decay > 0.0:
+        raise SystemExit("--probe-on-ema requires --ema-decay > 0")
+
+    callbacks = [knn_probe, linear_probe, ckpt_cb, save_cb]
+    if args.ema_decay > 0.0:
+        ema_path = CACHE_DIR / f"cifar10_ssl_resnet18{tag_suffix}_ema.pt"
+        callbacks.append(EMABackboneCallback(
+            args.ema_decay, ema_path, data, probe=args.probe_on_ema,
+        ))
+
     trainer = pl.Trainer(
         max_epochs=args.epochs,
         num_sanity_val_steps=0,
-        callbacks=[knn_probe, linear_probe, ckpt_cb, save_cb],
+        callbacks=callbacks,
         precision=args.precision,
         logger=logger,
         default_root_dir=str(LOG_DIR / run_name),

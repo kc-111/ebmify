@@ -30,7 +30,7 @@ def _add(p: Path) -> None:
 
 
 _add(CIFAR_ROOT)
-for _sub in ("train", "ood", "ebm", "diagnostics", "probes"):
+for _sub in ("train", "ood", "ebm", "diagnostics", "probes", "coreset"):
     _add(CIFAR_ROOT / _sub)
 _add(EXAMPLE_ROOT / "mnist")
 _add(EXAMPLE_ROOT / "hetero")

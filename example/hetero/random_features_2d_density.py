@@ -350,10 +350,10 @@ def main() -> None:
     )
     fig.tight_layout()
     out_path = (
-        Path(__file__).resolve().parent.parent / "out"
+        Path(__file__).resolve().parent.parent / "out" / "hetero"
         / "random_features_2d_density.png"
     )
-    out_path.parent.mkdir(exist_ok=True)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=120, bbox_inches="tight")
     print(f"\nSaved {out_path}")
 

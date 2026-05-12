@@ -439,8 +439,8 @@ def main() -> None:
 
     # --- Diagnostic: leverage separation under different phi maps. ----
     suffix = f"_{args.tag}" if args.tag else ""
-    out_dir = Path(__file__).resolve().parent.parent / "out"
-    out_dir.mkdir(exist_ok=True)
+    out_dir = Path(__file__).resolve().parent.parent / "out" / "mnist"
+    out_dir.mkdir(parents=True, exist_ok=True)
     plot_x_to_z_leverage_separation(
         vae, X_sub_t, Z_train, rff, device,
         out_dir / f"mnist_vae_x_to_z_ood{suffix}.png",
@@ -549,9 +549,9 @@ def main() -> None:
     ax4.set_title("Leverage separation")
 
     fig.tight_layout()
-    out_path = (Path(__file__).resolve().parent.parent / "out"
+    out_path = (Path(__file__).resolve().parent.parent / "out" / "mnist"
                 / f"mnist_vae_langevin{suffix}.png")
-    out_path.parent.mkdir(exist_ok=True)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out_path, dpi=120, bbox_inches="tight")
     print(f"\nSaved {out_path}")
 

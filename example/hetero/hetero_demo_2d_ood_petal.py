@@ -308,8 +308,8 @@ def main() -> None:
     # ------------------------------------------------------------------
     # Plot
     # ------------------------------------------------------------------
-    out_dir = Path(__file__).resolve().parent.parent / "out"
-    out_dir.mkdir(exist_ok=True)
+    out_dir = Path(__file__).resolve().parent.parent / "out" / "hetero"
+    out_dir.mkdir(parents=True, exist_ok=True)
     fig, axes = plt.subplots(2, 3, figsize=(18, 11))
 
     ax = axes[0, 0]

@@ -109,8 +109,8 @@ def main() -> None:
         fontsize=11,
     )
     fig.tight_layout()
-    out = Path(__file__).resolve().parent.parent / "out" / "mnist_vae_sanity.png"
-    out.parent.mkdir(exist_ok=True)
+    out = Path(__file__).resolve().parent.parent / "out" / "mnist" / "mnist_vae_sanity.png"
+    out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, dpi=120, bbox_inches="tight")
     print(f"saved {out}")
 

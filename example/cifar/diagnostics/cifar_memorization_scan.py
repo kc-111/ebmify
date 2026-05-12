@@ -393,8 +393,8 @@ def main() -> None:
         fontsize=12,
     )
     fig.tight_layout()
-    out = REPO_ROOT / "example" / "out" / "cifar10_memorization_scan.png"
-    out.parent.mkdir(exist_ok=True)
+    out = REPO_ROOT / "example" / "out" / "cifar" / "cifar10_memorization_scan.png"
+    out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, dpi=120, bbox_inches="tight")
     print(f"\nsaved {out}")
 

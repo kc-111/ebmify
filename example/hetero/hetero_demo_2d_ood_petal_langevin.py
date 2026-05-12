@@ -264,8 +264,8 @@ def main() -> None:
     # ------------------------------------------------------------------
     # Plot
     # ------------------------------------------------------------------
-    out_dir = Path(__file__).resolve().parent.parent / "out"
-    out_dir.mkdir(exist_ok=True)
+    out_dir = Path(__file__).resolve().parent.parent / "out" / "hetero"
+    out_dir.mkdir(parents=True, exist_ok=True)
     fig = plt.figure(figsize=(18, 12))
     gs = fig.add_gridspec(2, 3, height_ratios=[1.0, 0.7])
     ax_heat = fig.add_subplot(gs[0, 0])

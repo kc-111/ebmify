@@ -255,9 +255,9 @@ def main() -> None:
         fontsize=10,
     )
     fig.tight_layout()
-    out = (REPO_ROOT / "example" / "out"
+    out = (REPO_ROOT / "example" / "out" / "cifar"
            / f"cifar10_concat_{concat_label}.png")
-    out.parent.mkdir(exist_ok=True)
+    out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, dpi=120, bbox_inches="tight")
     print(f"\nsaved {out}")
 

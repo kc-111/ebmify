@@ -32,7 +32,7 @@ python example/hetero/hetero_demo_2d_ood_checkerboard_langevin.py
 python example/hetero/hetero_demo_2d_ood_petal_langevin.py
 ```
 
-![checkerboard Langevin](example/out/hetero_demo_2d_ood_checkerboard_langevin.png)
+![checkerboard Langevin](example/out/hetero/hetero_demo_2d_ood_checkerboard_langevin.png)
 
 *Checkerboard.* Training data sits only on the black cells of a
 checkerboard. The contour map shows $h(x)$: low inside black cells,
@@ -43,7 +43,7 @@ thermal saddles between adjacent cells. One scalar, two readouts: the
 contour panel reads $h$ as density; the trajectory panels read $h$ as
 energy.
 
-![petal Langevin](example/out/hetero_demo_2d_ood_petal_langevin.png)
+![petal Langevin](example/out/hetero/hetero_demo_2d_ood_petal_langevin.png)
 
 *Petals.* A central cluster plus a ring of peripheral clusters, of
 which only a subset is in the training set. The density $h$ has
@@ -66,7 +66,7 @@ python example/mnist/mnist_vae_ood_eval.py
 python example/mnist/mnist_vae_langevin.py --T 10 --T-lo 1e-7 --steps 100000
 ```
 
-![MNIST x→z OOD](example/out/mnist_vae_ood_eval.png)
+![MNIST x→z OOD](example/out/mnist/mnist_vae_ood_eval.png)
 
 *OOD by encoding-then-thresholding.* Every panel histograms $h(z)$ for
 in-data MNIST against one OOD $x$ source (uniform pixels, Bernoulli
@@ -76,7 +76,7 @@ are the hard ones — they have the right marginal pixel statistics —
 but $h$ separates them cleanly because the encoder maps them to parts
 of the latent space the training set never visited.
 
-![MNIST z-space Langevin](example/out/mnist_vae_langevin.png)
+![MNIST z-space Langevin](example/out/mnist/mnist_vae_langevin.png)
 
 *Generation by Langevin on the same energy.* Particles start at
 $z \sim \mathcal{N}(0, I)$ (high $h$, off-manifold) and anneal under
@@ -95,7 +95,7 @@ only thing fit on CIFAR-10 is the closed-form Gram inverse.
 python example/cifar/ood/cifar_dinov2_ood_threshold.py --normalize
 ```
 
-![CIFAR-10 DINOv2 OOD threshold](example/out/cifar10_dinov2_vitb14_norm_ood_threshold.png)
+![CIFAR-10 DINOv2 OOD threshold](example/out/cifar/cifar10_dinov2_vitb14_norm_ood_threshold.png)
 
 The figure sweeps a per-image $h(z)$ threshold and reports the AUROC,
 TPR/FPR, and a histogram of $h$ for cifar10 train (in-data) against
@@ -118,7 +118,7 @@ distribution.
 python example/cifar/diagnostics/cifar_centering_comparison.py
 ```
 
-![CIFAR-10 centering comparison](example/out/cifar10_centering_comparison.png)
+![CIFAR-10 centering comparison](example/out/cifar/cifar10_centering_comparison.png)
 
 Each panel is one backbone (supervised ResNet18, SSL LeJEPA ResNet18,
 DINOv2 ViT-B/14, VAE encoder mean). Within a panel, four grouped bars

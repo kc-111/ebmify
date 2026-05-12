@@ -93,8 +93,8 @@ def main() -> None:
     print(f"  ridge = {args.ridge}")
 
     suffix = f"_{args.tag}" if args.tag else ""
-    out_dir = Path(__file__).resolve().parent.parent / "out"
-    out_dir.mkdir(exist_ok=True)
+    out_dir = Path(__file__).resolve().parent.parent / "out" / "mnist"
+    out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"mnist_vae_ood_eval{suffix}.png"
 
     plot_x_to_z_leverage_separation(
