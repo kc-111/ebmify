@@ -12,7 +12,13 @@ from ._scaler import (
     make_pipeline,
     make_transform,
 )
-from .conv import ConvDecoder, ConvEncoder, ConvResBlock, ConvResVAE
+from .conv import (
+    ConvDecoder,
+    ConvEncoder,
+    ConvResBlock,
+    ConvResVAE,
+    SpatialRFFLayer,
+)
 from .fc import FCNet, RFFLayer
 
 __all__ = [
@@ -22,6 +28,7 @@ __all__ = [
     "ConvEncoder",
     "ConvDecoder",
     "ConvResVAE",
+    "SpatialRFFLayer",
     "FitConfig",
     "RegConfig",
     "NoiseConfig",

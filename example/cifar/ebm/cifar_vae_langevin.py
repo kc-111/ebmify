@@ -6,8 +6,8 @@ runs SamAdams overdamped Langevin in z-space. Decoded samples land on
 the data manifold; the same h(z) doubles as an OOD detector.
 
 Run (after training is cached):
-    python example/cifar/cifar_vae_langevin.py --dataset cifar10
-    python example/cifar/cifar_vae_langevin.py --dataset cifar100 --steps 50000
+    python example/cifar/ebm/cifar_vae_langevin.py --dataset cifar10
+    python example/cifar/ebm/cifar_vae_langevin.py --dataset cifar100 --steps 50000
 """
 
 from __future__ import annotations
@@ -21,16 +21,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-sys.path.insert(0, str(REPO_ROOT / "example" / "hetero"))
-sys.path.insert(0, str(REPO_ROOT / "example" / "mnist"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from _paths import REPO_ROOT  # noqa: E402
 
 from ebmify.models.fc import RFFLayer  # noqa: E402
 from ebmify.sampler import SamAdamsConfig, samadams_sample  # noqa: E402
 
 from cifar_data import cifar_ckpt_path, load_cifar_train  # noqa: E402
-from cifar_vae_train import CifarVAE  # noqa: E402
+from cifar_vae_train import load_vae  # noqa: E402
 from hetero_demo_2d_ood_checkerboard_langevin import geometric_anneal  # noqa: E402
 from mnist_vae_langevin import build_phi_leverage, build_z_leverage  # noqa: E402
 
@@ -51,19 +49,19 @@ def imgrid_rgb(ax, imgs: np.ndarray, title: str, n: int = 8) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dataset", choices=["cifar10", "cifar100"], default="cifar10")
-    ap.add_argument("--z", type=int, default=128, dest="z_dim")
+    ap.add_argument("--z", type=int, default=512, dest="z_dim")
     ap.add_argument("--beta", type=float, default=1.0)
     ap.add_argument("--M", type=int, default=1024, dest="M_rff")
     ap.add_argument("--ell", type=float, default=0.5,
                     help="RFF length scale; default = median heuristic")
     ap.add_argument("--raw-z", action=BooleanOptionalAction, default=True,
                     dest="include_raw_z")
-    ap.add_argument("--steps", type=int, default=20000)
+    ap.add_argument("--steps", type=int, default=100000)
     ap.add_argument("--n-part", type=int, default=64, dest="n_part")
     ap.add_argument("--dtau", type=float, default=5e-3)
-    ap.add_argument("--dtau-lo", type=float, default=2e-3, dest="dtau_lo")
-    ap.add_argument("--T", type=float, default=1e-1)
-    ap.add_argument("--T-lo", type=float, default=1e-3, dest="T_lo")
+    ap.add_argument("--dtau-lo", type=float, default=1e-4, dest="dtau_lo")
+    ap.add_argument("--T", type=float, default=1e-2)
+    ap.add_argument("--T-lo", type=float, default=1e-8, dest="T_lo")
     ap.add_argument("--hot-frac", type=float, default=0.0, dest="hot_frac")
     ap.add_argument("--anneal", choices=("on", "off"), default="on")
     ap.add_argument("--tag", type=str, default="")
@@ -78,9 +76,7 @@ def main() -> None:
             f"No cached VAE at {ckpt}. Run cifar_vae_train.py --dataset "
             f"{args.dataset} first."
         )
-    vae = CifarVAE(z_dim=args.z_dim).to(device)
-    vae.load_state_dict(torch.load(ckpt, map_location=device))
-    vae.eval()
+    vae = load_vae(ckpt, device)
     print(f"Loaded VAE from {ckpt}")
 
     X_tr, _ = load_cifar_train(args.dataset)

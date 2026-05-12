@@ -22,6 +22,7 @@ Run from the repo root:
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -127,6 +128,12 @@ def classify_final(
 # ----------------------------------------------------------------------
 
 def main() -> None:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--normalize", action="store_true",
+                    help="L2-normalize trunk features before building the "
+                         "leverage kernel (and at test time).")
+    args = ap.parse_args()
+
     n_petals = 8
     radius = 3.5
     sigma = 0.4
@@ -166,8 +173,10 @@ def main() -> None:
     print("  fit complete.")
 
     energy_fn, raw_h_fn, h_char = build_leverage_energy(
-        net, X_tr, ridge=1e-3, bias=True,
+        net, X_tr, ridge=1e-3, bias=True, normalize=args.normalize,
     )
+    if args.normalize:
+        print("  [normalize] trunk features L2-normalized before Gram and scoring.")
     print(f"  h_char (95th percentile of training leverage) = {h_char:.4e}")
 
     G = 160
@@ -349,7 +358,8 @@ def main() -> None:
         y=0.995, fontsize=11,
     )
     fig.tight_layout()
-    out_path = out_dir / "hetero_demo_2d_ood_petal_langevin.png"
+    norm_suffix = "_norm" if args.normalize else ""
+    out_path = out_dir / f"hetero_demo_2d_ood_petal_langevin{norm_suffix}.png"
     fig.savefig(out_path, dpi=120, bbox_inches="tight")
     print(f"\nSaved plot to {out_path}")
 

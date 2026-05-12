@@ -31,7 +31,7 @@ import torch
 
 from ebmify.models.fc import RFFLayer
 
-from mnist_vae_train import VAE, load_mnist_train, vae_ckpt_path
+from mnist_vae_train import load_mnist_train, load_vae, vae_ckpt_path
 from mnist_vae_langevin import plot_x_to_z_leverage_separation
 
 
@@ -62,9 +62,7 @@ def main() -> None:
         raise FileNotFoundError(
             f"No cached VAE at {ckpt}. Run mnist_vae_train.py first."
         )
-    vae = VAE(z_dim=args.z_dim).to(device)
-    vae.load_state_dict(torch.load(ckpt, map_location=device))
-    vae.eval()
+    vae = load_vae(ckpt, device)
     print(f"Loaded VAE from {ckpt}")
 
     X_tr, _ = load_mnist_train()

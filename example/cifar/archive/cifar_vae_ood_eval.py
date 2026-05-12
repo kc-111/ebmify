@@ -27,7 +27,7 @@ sys.path.insert(0, str(REPO_ROOT / "example" / "mnist"))
 from ebmify.models.fc import RFFLayer  # noqa: E402
 
 from cifar_data import cifar_ckpt_path, load_cifar_train  # noqa: E402
-from cifar_vae_train import CifarVAE  # noqa: E402
+from cifar_vae_train import load_vae  # noqa: E402
 from mnist_vae_langevin import (  # noqa: E402
     build_ood_x_sources,
     plot_x_to_z_leverage_separation,
@@ -37,7 +37,7 @@ from mnist_vae_langevin import (  # noqa: E402
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dataset", choices=["cifar10", "cifar100"], default="cifar10")
-    ap.add_argument("--z", type=int, default=128, dest="z_dim")
+    ap.add_argument("--z", type=int, default=256, dest="z_dim")
     ap.add_argument("--beta", type=float, default=1.0)
     ap.add_argument("--M", type=int, default=2048, dest="M_rff")
     ap.add_argument("--ell", type=float, default=0.1,
@@ -58,9 +58,7 @@ def main() -> None:
             f"No cached VAE at {ckpt}. Run cifar_vae_train.py --dataset "
             f"{args.dataset} first."
         )
-    vae = CifarVAE(z_dim=args.z_dim).to(device)
-    vae.load_state_dict(torch.load(ckpt, map_location=device))
-    vae.eval()
+    vae = load_vae(ckpt, device)
     print(f"Loaded VAE from {ckpt}")
 
     X_tr, _ = load_cifar_train(args.dataset)

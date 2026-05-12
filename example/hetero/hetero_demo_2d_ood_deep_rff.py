@@ -74,11 +74,11 @@ def main() -> None:
     X_tr, y_tr, geom = make_2d_complex_data(n=1000, seed=1)
 
     pc = PreprocessConfig(
-        # input_transforms=["standard"],
-        input_transforms=["kde_quantile"],
-        kde_bandwidth_factor=10.0,
-        # output_transforms=["standard"],
-        output_transforms=["kde_quantile"],
+        input_transforms=["standard"],
+        # input_transforms=["kde_quantile"],
+        # kde_bandwidth_factor=10.0,
+        output_transforms=["standard"],
+        # output_transforms=["kde_quantile"],
     )
     fc = FitConfig(epochs=1000, lr=5e-4, batch_size=128, seed=0, verbose=True)
     nc = NoiseConfig(
@@ -86,8 +86,8 @@ def main() -> None:
         output_additive_std=0.0,
     )
 
-    M_in = 32
-    M_out = 64
+    M_in = None
+    M_out = None
     print(
         "Fitting deep RFF FCNet "
         f"(input_rff M={M_in} median, residual MLP, output_rff M={M_out} median) "
@@ -95,22 +95,22 @@ def main() -> None:
     )
     net = FCNet(
         n_inputs=2, n_outputs=1,
-        hidden_dims=(32, 32,),
+        hidden_dims=(32, 32, 32, 32),
         activation="odd_piecewise",
         fit_config=fc, reg_config=RegConfig(l2=1e-5),
         noise_config=nc, preprocess=pc,
         input_rff=M_in, input_rff_length_scale=[0.25, 0.5, 1.0],
-        output_rff=M_out, output_rff_length_scale=[0.25, 0.5, 1.0],
+        output_rff=M_out, output_rff_length_scale=[0.1],
         # block_type="rff",
         # block_rff_features=64,
         # block_rff_length_scale="median",
         rff_seed=0,
     )
     net.fit(X_tr, y_tr)
-    ell_in = _fmt_ell(net.net.input_rff.length_scale)
-    ell_out = _fmt_ell(net.net.output_rff.length_scale)
-    print(f"  resolved input_rff length_scale = {ell_in}")
-    print(f"  resolved output_rff length_scale = {ell_out}")
+    # ell_in = _fmt_ell(net.net.input_rff.length_scale)
+    # ell_out = _fmt_ell(net.net.output_rff.length_scale)
+    # print(f"  resolved input_rff length_scale = {ell_in}")
+    # print(f"  resolved output_rff length_scale = {ell_out}")
 
     G = 140
     X1_LO, X1_HI = -5.5, 6.0
@@ -219,7 +219,8 @@ def main() -> None:
           "Truth mean (gauss-mix landscape)",
           geom, cmap="RdBu_r", vmin=mu_vmin, vmax=mu_vmax)
     _heat(axes[0, 2], mu, extent,
-          f"Mean prediction (deep RFF)\nin M={M_in} ell_in={ell_in} | out M={M_out} ell_out={ell_out}",
+        #   f"Mean prediction (deep RFF)\nin M={M_in} ell_in={ell_in} | out M={M_out} ell_out={ell_out}",
+        f"Mean prediction (deep RFF)\nout M={M_out}",
           geom, cmap="RdBu_r", vmin=mu_vmin, vmax=mu_vmax)
 
     _heat(axes[1, 0], abserr, extent,
@@ -272,7 +273,8 @@ def main() -> None:
     ax_slice.legend(loc="upper center", fontsize=8, ncol=2)
 
     fig.suptitle(
-        f"2D deep RFF (input M={M_in} ell_in={ell_in}, MLP trunk, output M={M_out} ell_out={ell_out})\n"
+        # f"2D deep RFF (input M={M_in} ell_in={ell_in}, MLP trunk, output M={M_out} ell_out={ell_out})\n"
+        f"2D deep RFF (MLP trunk, output M={M_out})\n"
         f"+ closed-form last-layer epistemic on a complex training topology\n"
         "Train: 2 interlocking moons + thin annulus + spiral arm. "
         f"Predict on [{X1_LO:+.1f}, {X1_HI:+.1f}] x [{X2_LO:+.1f}, {X2_HI:+.1f}]. "

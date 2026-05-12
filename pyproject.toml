@@ -18,6 +18,7 @@ requires-python = ">=3.10"
 dependencies = [
     "numpy",
     "torch>=2.0",
+    "torchvision",
     "scipy",
     "scikit-learn",
     "matplotlib",

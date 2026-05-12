@@ -12,6 +12,8 @@ cifar-10-batches-py/
 cifar-100-python/
 
 # Outputs and caches
-example/out/
+# example/out/
 example/mnist/cache/
 example/cifar/cache/
+example/cifar/logs/
+*.ckpt

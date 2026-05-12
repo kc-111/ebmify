@@ -1,38 +1,135 @@
 # ebmify
 
-**ebmify any model.** Pick any feature extractor `phi(x)` — a trained
-MLP's penultimate activations, random Fourier features, even raw `x` —
-and the Bayesian last-layer posterior variance
+**ebmify any model.** Pick any feature extractor $\phi(x)$ — a trained
+MLP's penultimate activations, random Fourier features, a frozen DINOv2
+backbone, even raw $x$ — and the Bayesian last-layer posterior variance
 
+$$h(x) = \phi(x)^{\top} \left( \Phi^{\top} \Phi + \lambda I \right)^{-1} \phi(x)$$
+
+is a ready-made scalar with four jobs:
+
+1. **Energy.** Treat $\exp(-h(x))$ as the unnormalized density of an EBM.
+2. **Uncertainty.** $h(x)$ *is* the predictive variance of the
+   linear-in-features Bayesian model (equivalently, the GP posterior
+   variance under the kernel $k(x, x') = \phi(x)^{\top}\phi(x')$).
+3. **Sample drift.** $-\nabla h$ flows particles toward the data
+   manifold under overdamped Langevin.
+4. **OOD score.** $h(x)$ blows up where the training set never put
+   mass — threshold it directly.
+
+The same closed-form $h$ delivers all four. The design lever is $\phi$:
+pick it to match the geometry of the data, and the formula does the rest.
+
+## 2D toys: density and Langevin from one $h$
+
+The first thing to see is that $h(x)$ behaves as a kernel density and as
+a Langevin energy *simultaneously*. The Langevin scripts plot both: the
+background contours are $h(x)$ (the density the kernel sees), and the
+overlaid trajectories are particles evolving under $-\nabla h$.
+
+```bash
+python example/hetero/hetero_demo_2d_ood_checkerboard_langevin.py
+python example/hetero/hetero_demo_2d_ood_petal_langevin.py
 ```
-    h(x) = phi(x)^T (Phi^T Phi + lambda*I)^-1 phi(x)
+
+![checkerboard Langevin](example/out/hetero_demo_2d_ood_checkerboard_langevin.png)
+
+*Checkerboard.* Training data sits only on the black cells of a
+checkerboard. The contour map shows $h(x)$: low inside black cells,
+high in the white slots and outside the board. Particles initialized
+across the plane (right panels, colored chains) flow under
+$-\nabla h$ down into the nearest black cell, with a few crossing the
+thermal saddles between adjacent cells. One scalar, two readouts: the
+contour panel reads $h$ as density; the trajectory panels read $h$ as
+energy.
+
+![petal Langevin](example/out/hetero_demo_2d_ood_petal_langevin.png)
+
+*Petals.* A central cluster plus a ring of peripheral clusters, of
+which only a subset is in the training set. The density $h$ has
+visible basins at every observed cluster and a low plateau in between
+that gently dips at the *unobserved* cluster locations — the
+kernel-density readout reveals the geometry the training set actually
+implies. Annealed Langevin under the same $h$ then samples both
+observed and unobserved petals: same scalar, just used as drift instead
+of density.
+
+## MNIST: latent-space OOD and sample generation from one $h$
+
+Train a small $\beta$-VAE, then build leverage on
+$\phi(z) = [z;\, \mathrm{RFF}(z)]$ in the VAE's latent space.
+The same $h(z)$ is used to flag OOD inputs *and* to generate digits.
+
+```bash
+python example/mnist/mnist_vae_train.py
+python example/mnist/mnist_vae_ood_eval.py
+python example/mnist/mnist_vae_langevin.py --T 10 --T-lo 1e-7 --steps 100000
 ```
 
-is a ready-made energy function. The same scalar serves as:
+![MNIST x→z OOD](example/out/mnist_vae_ood_eval.png)
 
-* an **OOD score** (it blows up where the training set never put mass),
-* a **density estimate** (`exp(-h)` is the predictive Gaussian-process
-  variance under a linear-in-features Bayesian model — the GP analog
-  drops out for free),
-* and an **energy for Langevin sampling** (`-grad h` flows toward the
-  data manifold).
+*OOD by encoding-then-thresholding.* Every panel histograms $h(z)$ for
+in-data MNIST against one OOD $x$ source (uniform pixels, Bernoulli
+pixels, Gaussian noise clamped to $[0, 1]$, pixel-shuffled MNIST,
+inverted MNIST, all-black, all-white). The shuffled and inverted cases
+are the hard ones — they have the right marginal pixel statistics —
+but $h$ separates them cleanly because the encoder maps them to parts
+of the latent space the training set never visited.
 
-The design lever is the feature map `phi`: pick it to match the
-geometry of the data, and the same formula yields OOD scores, density
-level-sets, and sampler drift fields.
+![MNIST z-space Langevin](example/out/mnist_vae_langevin.png)
 
-Three families of experiments are included:
+*Generation by Langevin on the same energy.* Particles start at
+$z \sim \mathcal{N}(0, I)$ (high $h$, off-manifold) and anneal under
+$-\nabla h(z)$ with an exponential temperature schedule from $T = 10$
+to $T = 10^{-7}$. Decoding the final states gives a diverse grid of
+digits. No GAN, no diffusion, no second model — just the same scalar
+that did OOD detection, used as drift.
 
-1. **2D toy data** — random Fourier features (RFFs) on the raw plane,
-   with explicit comparisons against deeper FCNet feature maps. Shows
-   when concatenating raw `x` helps and when a deep stack helps.
-2. **MNIST** — train a small beta-VAE, then build leverage on
-   `phi(z) = [z; RFF(z)]` in the latent space. The same `h(z)`
-   doubles as an OOD detector (encode strange `x`, watch `h(z)`
-   explode) and as the energy for a SamAdams Langevin sampler that
-   regenerates diverse digits.
-3. **CIFAR-10 / CIFAR-100** — same recipe as MNIST, with a deeper
-   conv-VAE and cross-dataset OOD evaluation.
+## CIFAR-10: OOD with a frozen foundation-model $\phi$
+
+Once $\phi$ is strong, OOD via leverage becomes nearly free. Here
+$\phi$ is a frozen DINOv2 ViT-B/14 with no CIFAR-specific training; the
+only thing fit on CIFAR-10 is the closed-form Gram inverse.
+
+```bash
+python example/cifar/ood/cifar_dinov2_ood_threshold.py --normalize
+```
+
+![CIFAR-10 DINOv2 OOD threshold](example/out/cifar10_dinov2_vitb14_norm_ood_threshold.png)
+
+The figure sweeps a per-image $h(z)$ threshold and reports the AUROC,
+TPR/FPR, and a histogram of $h$ for cifar10 train (in-data) against
+eight probe sources: cifar10 test (memorization sanity check), cifar100
+(the hard semantic OOD case), uniform/Bernoulli/Gaussian pixel noise,
+pixel-shuffled cifar10, inverted cifar10, and constant black/white. A
+single linear leverage head on a frozen ViT clears cifar100 vs cifar10
+— the case where bespoke OOD methods usually start. See
+`LEVERAGE_FINDINGS.md` for the longer "best foundation model resolves
+OOD" discussion.
+
+## Preprocessing matters: $\phi$ includes how you center it
+
+$h$ is not invariant to how the features are preprocessed. The same
+backbone with `raw`, L2-normalized, centered, or centered+L2 features
+can give very different AUROCs because the Gram sees a different
+distribution.
+
+```bash
+python example/cifar/diagnostics/cifar_centering_comparison.py
+```
+
+![CIFAR-10 centering comparison](example/out/cifar10_centering_comparison.png)
+
+Each panel is one backbone (supervised ResNet18, SSL LeJEPA ResNet18,
+DINOv2 ViT-B/14, VAE encoder mean). Within a panel, four grouped bars
+show linear leverage AUROC under each preprocessing treatment against
+four probe sources (cifar10 test, cifar100, Gaussian noise, inverted).
+The takeaway is that **`centered+L2` is the most robust choice across
+backbones**: it strips out the uninformative mean direction that
+otherwise dominates the Gram and puts the informative variation on the
+unit sphere, where the linear leverage score reads it consistently
+whether $\phi$ was trained for invariance (SSL, DINOv2), supervision
+(ResNet18), or reconstruction (VAE).
 
 ## Quick start
 
@@ -41,78 +138,11 @@ git clone <repo-url> ebmify
 cd ebmify
 pip install -e .
 
-# fetch datasets (MNIST = ~12 MB, CIFAR = ~330 MB)
-python download_mnist.py
-python download_cifar.py
+python download_mnist.py    # ~12 MB
+python download_cifar.py    # ~330 MB
 ```
 
-Every script writes its plot to `example/out/`.
-
-## Toy 2D experiments
-
-Four self-contained scripts, each illustrating a different facet of the
-leverage signal on synthetic 2D data:
-
-| Script | What it shows |
-|---|---|
-| `example/hetero/hetero_demo_2d_ood_deep_rff.py` | Deep RFF stack (input-RFF + MLP trunk + output-RFF) on a moons+ring+spiral topology with *internal holes*. Bounded output-RFF activations keep the leverage signal sharp across both the empty disc inside the ring and the slot between the moons. |
-| `example/hetero/hetero_demo_2d_ood_checkerboard_langevin.py` | Overdamped Langevin on the leverage energy `E(x) = h(x) / h_char` for a checkerboard. Particles started outside the board drift in; particles started *inside* black cells must cross thermal saddles into the neighboring white cells. |
-| `example/hetero/hetero_demo_2d_ood_petal_langevin.py` | Same Langevin dynamics on a petal-topology dataset (center cluster + `n_petals` peripheral clusters, only a subset observed). Tests whether annealed sampling can find the unobserved clusters from inside the leverage plateau. |
-| `example/hetero/random_features_2d_density.py` | Sweeps **8 feature maps** for `h(x)` on moons: raw `x`, RFF only, `[x; RFF]`, random FCNet trunk, trained FCNet trunk, `[x; trunk]`, `[x; pre-out]`, `[x; every hidden state]`. Isolates how concatenating raw `x` adds a quadratic bowl on top of an RFF kernel-density floor. |
-
-Run any of them directly:
-
-```bash
-python example/hetero/hetero_demo_2d_ood_deep_rff.py
-python example/hetero/random_features_2d_density.py
-```
-
-## MNIST experiments
-
-Three-step pipeline.
-
-```bash
-# 1) train the beta-VAE (cached under example/mnist/cache/)
-python example/mnist/mnist_vae_train.py
-
-# 2) z-space SamAdams Langevin — generates digits from h(z) energy
-python example/mnist/mnist_vae_langevin.py --T 10 --T-lo 1e-7 --steps 100000
-
-# 3) x -> z OOD evaluation under phi = z, RFF(z), and [z; RFF(z)]
-python example/mnist/mnist_vae_ood_eval.py
-```
-
-The Langevin recipe `--T 10 --T-lo 1e-7 --steps 100000` reproduces a
-diverse set of digits (all 10 classes). Lower temperatures collapse to
-a few modes; higher temperatures over-explore and produce blurry
-samples.
-
-The OOD eval reports leverage separation versus 7 OOD `x` sources:
-uniform, Bernoulli, Gaussian (clamped to `[0,1]`), pixel-shuffled MNIST,
-inverted MNIST, all-black, and all-white. The encoder's behavior on
-constant images (black ~5x, white ~100x+) reflects the asymmetric
-"MNIST = mostly dark + bright strokes" prior it has internalized.
-
-## CIFAR experiments
-
-Same recipe, deeper VAE (4 conv blocks, `z_dim=64`), one VAE per
-dataset.
-
-```bash
-# CIFAR-10
-python example/cifar/cifar_vae_train.py    --dataset cifar10
-python example/cifar/cifar_vae_langevin.py --dataset cifar10
-python example/cifar/cifar_vae_ood_eval.py --dataset cifar10
-
-# CIFAR-100
-python example/cifar/cifar_vae_train.py    --dataset cifar100
-python example/cifar/cifar_vae_langevin.py --dataset cifar100
-python example/cifar/cifar_vae_ood_eval.py --dataset cifar100
-```
-
-The OOD eval includes a **cross-dataset** column: the CIFAR-10 VAE
-scoring CIFAR-100 inputs and vice versa. This is the standard hard case
-in the OOD-detection literature.
+All figures land in `example/out/`.
 
 ## Reading the code
 
@@ -123,12 +153,13 @@ src/ebmify/
         _config.py    FitConfig, RegConfig, NoiseConfig, PreprocessConfig
         _scaler.py    StandardScale, YeoJohnson, KDEQuantile, ...
         fc.py         FCNet, RFFLayer (random Fourier features module)
+        conv.py       ConvResVAE, ConvResBlock, SpatialRFFLayer
     sampler/
-        samadams.py   SamAdams overdamped Langevin sampler (adaptive)
+        samadams.py   SamAdams overdamped Langevin (adaptive)
 ```
 
-The public surface is small — `FCNet`, `RFFLayer`, `FitConfig`,
-`feature_leverage`, the SamAdams sampler — re-exported at
+Public surface: `FCNet`, `RFFLayer`, `ConvResVAE`, `SpatialRFFLayer`,
+`FitConfig`, `feature_leverage`, the SamAdams sampler — re-exported at
 `ebmify.models` and `ebmify.sampler`.
 
 ## License

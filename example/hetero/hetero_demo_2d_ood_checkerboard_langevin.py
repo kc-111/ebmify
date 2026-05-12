@@ -80,7 +80,7 @@ def features_with_grad(net: FCNet, x: torch.Tensor) -> torch.Tensor:
 
 def build_leverage_energy(
     net: FCNet, X_train: np.ndarray, *, ridge: float = 1e-3, bias: bool = True,
-    max_jitter_bumps: int = 8,
+    normalize: bool = False, max_jitter_bumps: int = 8,
 ):
     """Build a callable ``energy(x) -> h(x) / h_char`` and return calibration.
 
@@ -88,11 +88,19 @@ def build_leverage_energy(
     Cholesky fails (e.g., features are nearly collinear because the user
     chose a single wide RFF length scale), the ridge is bumped by 10x
     and retried -- standard "adaptive jitter" trick from GP regression.
+
+    ``normalize=True``: L2-normalize the feature vector phi(x) to the unit
+    sphere before (optionally) appending bias. Removes the ||phi||^2
+    scaling from h(x), making leverage purely directional. Both the
+    training Gram and the test-time scoring are normalized identically.
+    Gradient w.r.t. x still flows through the normalization via autograd.
     """
     device = net.device
     X_t = torch.as_tensor(X_train, dtype=torch.float32, device=device)
     with torch.no_grad():
         Phi = features_with_grad(net, X_t)
+        if normalize:
+            Phi = Phi / Phi.norm(dim=-1, keepdim=True).clamp_min(1e-8)
         if bias:
             Phi = torch.cat(
                 [Phi, torch.ones(Phi.shape[0], 1, device=Phi.device,
@@ -128,6 +136,8 @@ def build_leverage_energy(
 
     def raw_h(x: torch.Tensor) -> torch.Tensor:
         phi = features_with_grad(net, x)
+        if normalize:
+            phi = phi / phi.norm(dim=-1, keepdim=True).clamp_min(1e-8)
         if bias:
             phi = torch.cat(
                 [phi, torch.ones(phi.shape[0], 1, device=phi.device,
