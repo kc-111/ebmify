@@ -345,8 +345,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--num-proj", type=int, default=1024)
     p.add_argument("--dec-base", type=int, default=256, dest="dec_base",
                    help="Decoder channel width at the 2x2 stem.")
-    p.add_argument("--batch-size", type=int, default=256)
-    p.add_argument("--epochs", type=int, default=1000)
+    p.add_argument("--batch-size", type=int, default=512)
+    p.add_argument("--epochs", type=int, default=2000)
     p.add_argument("--lr", type=float, default=5e-4)
     p.add_argument("--weight-decay", type=float, default=5e-4)
     p.add_argument("--num-workers", type=int, default=8)
