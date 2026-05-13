@@ -26,9 +26,27 @@ Aux target families and their loss kinds:
 - ``leverage_score``   -> MSE regression onto a scalar.
 - ``home_bucket``      -> ``CrossEntropyLoss`` classification over
   ``n_buckets`` classes.
-- ``feature_distill``  -> MSE regression onto ``(D,)`` standardized
-  backbone features (target file absent on artifacts built before this
-  was added; silently skipped in that case).
+- ``feature_distill``  -> in-batch *kernel* distillation: cosine Gram
+  matrix of the head's projection is MSE-matched against the cosine
+  Gram matrix of the standardized teacher features ``phi_i``. The
+  on-disk target file ``aux_feature_distill.pt`` still stores per-row
+  teacher features ``(k, D)``; the Gram is computed at loss time from
+  the batch's rows so we never materialize a ``(k, k)`` kernel.
+  Rotation-invariant on both sides, so the student head does not have
+  to recover the teacher's coordinate frame -- only the geometry it
+  induces between samples. Target file absent on artifacts built
+  before this was added; silently skipped in that case.
+
+Clean-vs-clean contract: every aux target on disk was computed by
+the encoder that built the coreset on *clean* inputs. Feeding the
+augmented (and possibly Mixup/CutMix'd) training-step embedding to
+these heads mismatches the clean targets -- spectral coords / bucket
+ranks / leverage scores / home buckets / phi_i all describe the
+sample's identity, not the augmentation's. Callers are therefore
+expected to feed ``aux_loss_terms`` a *clean* backbone embedding (a
+separate forward through the live backbone on the un-augmented
+coreset images) and the *unmixed* target rows. Targets are then
+just ``full[pos]`` -- no lam/perm blending.
 """
 
 from __future__ import annotations
@@ -160,7 +178,7 @@ def discover_aux_targets(algo_dir: Path) -> tuple[dict[str, torch.Tensor], dict[
         specs["feature_distill"] = AuxSpec(
             name="feature_distill",
             target_dim=int(fd.shape[1]),
-            loss_kind="mse",
+            loss_kind="kernel_mse",
         )
 
     return targets, specs
@@ -223,6 +241,21 @@ def aux_loss_terms(
         elif spec.loss_kind == "weighted_mse":
             w = spec.per_coord_weights.to(emb.device)
             loss = (w * (pred - target.to(pred.dtype)).square()).mean()
+        elif spec.loss_kind == "kernel_mse":
+            # Clean-vs-clean cosine-Gram distillation: match the (B,B)
+            # Gram of the student's projection ``pred`` against the
+            # Gram of the teacher rows ``target``. Both sides
+            # L2-normalized first so each Gram is a cosine-similarity
+            # matrix in ``[-1, 1]``; loss is MSE over all B*B entries.
+            # Rotation-invariant on both sides -- only the pairwise
+            # geometry has to agree. Caller must supply a clean
+            # ``emb`` and unmixed ``target`` for this to be coherent
+            # (see module docstring).
+            teacher_n = F.normalize(target.to(pred.dtype), dim=-1, eps=1e-8)
+            pred_n = F.normalize(pred, dim=-1, eps=1e-8)
+            K_pred = pred_n @ pred_n.T
+            K_teacher = teacher_n @ teacher_n.T
+            loss = F.mse_loss(K_pred, K_teacher)
         else:  # "mse"
             loss = F.mse_loss(pred, target.to(pred.dtype))
         total = total + lam * loss
@@ -241,7 +274,7 @@ def add_aux_lambda_args(ap: argparse.ArgumentParser) -> None:
         "bucket_ranks": "regress per-bucket uniform ranks in [0,1] (MSE)",
         "leverage_score": "regress scalar ridge leverage h_i (MSE)",
         "home_bucket": "classify each sample's home bucket id (cross-entropy)",
-        "feature_distill": "regress standardized backbone features phi_i (MSE)",
+        "feature_distill": "match in-batch cosine Gram vs teacher phi_i (kernel MSE)",
     }
     for name in AUX_NAMES:
         ap.add_argument(

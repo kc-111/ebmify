@@ -53,7 +53,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument(
-        "--ssl-tag", default="recon", dest="ssl_tag",
+        "--ssl-tag", default="recon_ema", dest="ssl_tag",
         help=("SSL checkpoint tag. Loads "
               "example/cifar/cache/cifar10_ssl_resnet18_<tag>.pt (produced "
               "by example/cifar/train/ssl_pretrain_recon.py)."),

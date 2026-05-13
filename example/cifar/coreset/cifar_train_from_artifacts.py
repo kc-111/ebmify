@@ -49,7 +49,7 @@ from _aux_losses import (  # noqa: E402
     build_aux_heads, collect_aux_lambdas, discover_aux_targets,
 )
 
-ALGO_CHOICES = ["greedy", "leverage", "spectral_rank"]
+ALGO_CHOICES = ["greedy", "leverage", "spectral_rank", "random"]
 DEFAULT_TAG = "supervised_resnet18"  # written by cifar_build_coreset_supervised.py
 RESNET18_EMB_DIM = 512  # pre-fc avgpool output for CIFAR ResNet18
 
@@ -73,6 +73,7 @@ _ALGO_STYLE = {
     "greedy":        ("C3", "Greedy max-variance"),
     "leverage":      ("C0", "Ridge leverage sample"),
     "spectral_rank": ("C2", "Spectral-rank coverage"),
+    "random":        ("C7", "Random baseline"),
 }
 
 
@@ -134,13 +135,17 @@ def main() -> None:
     #   greedy        -- greedy max-variance pick (diverse-but-noisy)
     #   leverage      -- ridge leverage-score sampling (importance weighted)
     #   spectral_rank -- greedy max-coverage on rank strata (uniform-ish)
-    g.add_argument("--algorithms", nargs="+", default=["spectral_rank"],
+    #   random        -- random baseline
+    g.add_argument("--algorithms", nargs="+", 
+                   default=["leverage"], #["spectral_rank", "random"],
+                #    default=["random"],
                    choices=ALGO_CHOICES, metavar="ALGO",
                    help=("restrict to these algos (default: all under --artifacts). "
                          "Choices: "
                          "greedy=greedy max-variance, "
                          "leverage=ridge leverage sampling, "
-                         "spectral_rank=greedy max-coverage on rank strata"))
+                         "spectral_rank=greedy max-coverage on rank strata, "
+                         "random=random baseline"))
 
     # Mirrors the SOTA recipe in example/cifar/train/cifar_resnet18_train.py
     # so coreset / full-50k numbers are directly comparable: SGD+Nesterov,
@@ -148,9 +153,9 @@ def main() -> None:
     # jitter, EMA, bfloat16 AMP, channels_last. Defaults match upstream.
     g = ap.add_argument_group("training (SOTA recipe, mirrors cifar_resnet18_train.py)")
 
-    # Epochs per algorithm. 200 matches upstream; coreset runs converge
-    # faster than 50k so reducing to ~120 is usually safe for smoke tests.
-    g.add_argument("--epochs", type=int, default=200)
+    # Epochs per algorithm.
+    # 10 times reduction in data means 10 times more steps.
+    g.add_argument("--epochs", type=int, default=2000) 
 
     # Linear LR warmup length (steps = warmup_epochs * steps_per_epoch).
     # Same as upstream; cosine anneal kicks in after warmup ends.
@@ -214,8 +219,16 @@ def main() -> None:
     # head on the 512-D pre-fc feature (captured via a forward hook on
     # avgpool) and adds the head's per-target loss to the cross-entropy
     # loss with the given lambda. 0.0 disables that head entirely (no
-    # forward pass, no parameters trained). Targets are loaded from
+    # parameters trained). Targets are loaded from
     # <artifacts>/<algo>/aux_<name>.pt and indexed by coreset position.
+    #
+    # Clean-vs-clean: when any aux is active the training loop runs a
+    # second forward through the model per step on the un-augmented,
+    # un-Mixup'd batch and feeds *that* clean embedding to every aux
+    # head. Targets are the on-disk rows indexed by coreset position
+    # -- no lam/perm blending. This keeps the heads aligned with the
+    # clean encoder state the targets were precomputed against, at
+    # the cost of one extra backbone forward per step.
     g_aux = ap.add_argument_group("auxiliary losses (lambda per aux target; 0=off)")
 
     # Regress projections onto the top eigenvectors of Phi^T Phi.
@@ -245,11 +258,17 @@ def main() -> None:
                        dest="aux_home_bucket",
                        help="weight for home_bucket aux (cross-entropy over bucket id; 0=off)")
 
-    # Regress standardized backbone features phi_i ("teacher distillation"
-    # from the encoder that built the coreset). Head: 512 -> D.
+    # In-batch kernel distillation from the encoder that built the
+    # coreset: match the cosine Gram of the student head's projection
+    # against the cosine Gram of the on-disk teacher features phi_i.
+    # Rotation-invariant on both sides; loss is MSE over the (B,B)
+    # Gram. Like the other aux heads, this rides on the shared
+    # clean-vs-clean forward (see group preamble), so both sides of
+    # the Gram are evaluated on clean inputs. Head: 512 -> D (the
+    # kernel itself is never materialized on disk).
     g_aux.add_argument("--aux-feature-distill", type=float, default=0.0,
                        dest="aux_feature_distill",
-                       help="weight for feature_distill aux (frozen-teacher feature MSE; 0=off)")
+                       help="weight for feature_distill aux (cosine-Gram MSE vs teacher phi_i; 0=off)")
 
     g = ap.add_argument_group("plot")
 

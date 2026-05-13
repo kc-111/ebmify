@@ -1,0 +1,20 @@
+[
+  {
+    "algorithm": "spectral_rank",
+    "budget": 5000,
+    "epochs": 4000,
+    "seed": 0,
+    "ema_decay": 0.999,
+    "probe_on_ema": true,
+    "aux_lambdas": {
+      "spectral_coords": 0.0,
+      "bucket_ranks": 0.0,
+      "leverage_score": 0.0,
+      "home_bucket": 0.0,
+      "feature_distill": 10.0
+    },
+    "aux_active": [],
+    "best_linear_probe_top1": 0.7485000491142273,
+    "best_knn_acc": 0.6690000295639038
+  }
+]

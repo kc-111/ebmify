@@ -1,0 +1,46 @@
+{
+  "tag": "supervised_resnet18",
+  "results": [
+    {
+      "algorithm": "greedy",
+      "budget": 500,
+      "test_acc": 0.3373,
+      "train_best_acc": 0.3367,
+      "train_final_acc": NaN,
+      "epochs": 2000,
+      "seed": 0,
+      "checkpoint": "/home/kevin-cheung/Desktop/ebmify/example/cifar/cache/coreset_models/supervised_resnet18/greedy/model.pt"
+    },
+    {
+      "algorithm": "leverage",
+      "budget": 500,
+      "test_acc": 0.4802,
+      "train_best_acc": 0.4715,
+      "train_final_acc": NaN,
+      "epochs": 2000,
+      "seed": 0,
+      "checkpoint": "/home/kevin-cheung/Desktop/ebmify/example/cifar/cache/coreset_models/supervised_resnet18/leverage/model.pt"
+    },
+    {
+      "algorithm": "random",
+      "budget": 500,
+      "test_acc": 0.5262,
+      "train_best_acc": 0.5112,
+      "train_final_acc": NaN,
+      "epochs": 2000,
+      "seed": 0,
+      "checkpoint": "/home/kevin-cheung/Desktop/ebmify/example/cifar/cache/coreset_models/supervised_resnet18/random/model.pt"
+    },
+    {
+      "algorithm": "spectral_rank",
+      "budget": 500,
+      "test_acc": 0.5427,
+      "train_best_acc": 0.5322,
+      "train_final_acc": NaN,
+      "epochs": 2000,
+      "seed": 0,
+      "checkpoint": "/home/kevin-cheung/Desktop/ebmify/example/cifar/cache/coreset_models/supervised_resnet18/spectral_rank/model.pt"
+    }
+  ],
+  "skipped": []
+}

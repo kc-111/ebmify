@@ -155,7 +155,7 @@ def tune_bandwidth(Z_train: torch.Tensor, Z_val: torch.Tensor, *,
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--ckpt", type=str, default="example/cifar/cache/cifar10_ssl_resnet18_recon.pt",
+    ap.add_argument("--ckpt", type=str, default="example/cifar/cache/cifar10_ssl_resnet18_recon_ema.pt",
                     help="Path to SSL ResNet18 backbone checkpoint.")
     ap.add_argument("--tag", type=str, default="",
                     help="Tag used at training time.")

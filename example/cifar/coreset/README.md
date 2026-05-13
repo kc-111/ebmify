@@ -402,3 +402,5 @@ example/out/coreset/
 Diagnostics are *statistics about the selection* (leverage histogram,
 home-bucket distribution, top-2 spectral-coord scatter, per-bucket mean
 rank), not images.
+
+### Further improvement can be done by clustering and getting kernels for each cluster and select more data from there, need think how bucket. Alternatively, we can randomly chunk the dataset, build kernels for each chunk, selecting N% from each of these chunks, and then repeat this procedure M times to see which samples occur the most (so expected appearance in coreset). How do reweigh the spectrum for certain tasks (via task weights, certain buckets get more weight, and that should have more strata or gaps to fill in the algorithm)?

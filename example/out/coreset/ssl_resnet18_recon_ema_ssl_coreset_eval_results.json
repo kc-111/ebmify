@@ -1,0 +1,34 @@
+{
+  "tag": "ssl_resnet18_recon_ema",
+  "results": [
+    {
+      "algorithm": "greedy",
+      "budget": 5000,
+      "linear_probe_top1": 0.6608,
+      "seed": 0,
+      "checkpoint": "/home/kevin-cheung/Desktop/ebmify/example/cifar/logs/ssl_coreset_ssl_resnet18_recon_ema_greedy_s0/checkpoints/last.ckpt"
+    },
+    {
+      "algorithm": "leverage",
+      "budget": 5000,
+      "linear_probe_top1": 0.7401,
+      "seed": 0,
+      "checkpoint": "/home/kevin-cheung/Desktop/ebmify/example/cifar/logs/ssl_coreset_ssl_resnet18_recon_ema_leverage_s0/checkpoints/last.ckpt"
+    },
+    {
+      "algorithm": "random",
+      "budget": 5000,
+      "linear_probe_top1": 0.7449,
+      "seed": 0,
+      "checkpoint": "/home/kevin-cheung/Desktop/ebmify/example/cifar/logs/ssl_coreset_ssl_resnet18_recon_ema_random_s0/checkpoints/last.ckpt"
+    },
+    {
+      "algorithm": "spectral_rank",
+      "budget": 5000,
+      "linear_probe_top1": 0.7515,
+      "seed": 0,
+      "checkpoint": "/home/kevin-cheung/Desktop/ebmify/example/cifar/logs/ssl_coreset_ssl_resnet18_recon_ema_spectral_rank_s0/checkpoints/last.ckpt"
+    }
+  ],
+  "skipped": []
+}

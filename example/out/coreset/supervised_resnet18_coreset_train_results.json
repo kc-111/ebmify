@@ -1,23 +1,23 @@
 [
   {
-    "algorithm": "spectral_rank",
-    "budget": 5000,
-    "best_acc": 0.8028,
-    "best_ema_acc": 0.8308,
-    "final_ema_acc": 0.8304,
-    "epochs": 200,
+    "algorithm": "leverage",
+    "budget": 500,
+    "best_acc": 0.4715,
+    "best_ema_acc": 0.4874,
+    "final_ema_acc": 0.4802,
+    "epochs": 2000,
     "seed": 0,
     "class_counts": [
-      482,
-      490,
-      507,
-      508,
-      486,
-      496,
-      522,
-      510,
-      496,
-      503
+      56,
+      46,
+      54,
+      62,
+      62,
+      44,
+      42,
+      42,
+      48,
+      44
     ],
     "aux_lambdas": {
       "spectral_coords": 0.0,
@@ -27,6 +27,6 @@
       "feature_distill": 0.0
     },
     "aux_active": [],
-    "runtime_sec": 275.3635311126709
+    "runtime_sec": 982.5237164497375
   }
 ]

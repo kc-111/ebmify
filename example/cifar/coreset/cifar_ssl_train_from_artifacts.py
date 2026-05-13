@@ -22,6 +22,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import lightning as pl
 import matplotlib.pyplot as plt
@@ -41,6 +42,7 @@ from _paths import REPO_ROOT  # noqa: F401, E402
 
 from ebmify.models.losses import make_regularizer  # noqa: E402
 from ssl_pretrain_recon import (  # noqa: E402
+    EMABackboneCallback,
     EMB_DIM,
     ConvDecoder,
     _make_projector,
@@ -57,8 +59,8 @@ from _aux_losses import (  # noqa: E402
     discover_aux_targets, index_targets,
 )
 
-ALGO_CHOICES = ["greedy", "leverage", "spectral_rank"]
-DEFAULT_TAG = "ssl_resnet18_recon"  # written by cifar_build_coreset_ssl.py
+ALGO_CHOICES = ["greedy", "leverage", "spectral_rank", "random"]
+DEFAULT_TAG = "ssl_resnet18_recon_ema"  # written by cifar_build_coreset_ssl.py
 
 
 class _Fmt(argparse.ArgumentDefaultsHelpFormatter,
@@ -80,9 +82,11 @@ _ALGO_STYLE = {
     "greedy":        ("C3", "Greedy max-variance"),
     "leverage":      ("C0", "Ridge leverage sample"),
     "spectral_rank": ("C2", "Spectral-rank coverage"),
+    "random":        ("C7", "Random baseline"),
 }
 
 LOG_DIR = Path(__file__).resolve().parent.parent / "logs"
+CACHE_DIR = Path(__file__).resolve().parent.parent / "cache"
 
 
 class CaptureBestMetrics(Callback):
@@ -134,6 +138,37 @@ def _make_subset_dataloaders(subset_idx: np.ndarray, *, batch_size: int,
     return train_dl, val_dl
 
 
+def _load_clean_coreset_images(subset_idx: np.ndarray) -> torch.Tensor:
+    """Load un-augmented, val-normalized CIFAR-10 images for a coreset.
+
+    Reads each coreset sample once through the same ``_make_val_tf``
+    pipeline that the eval split uses (RGB cast, resize to 32x32,
+    normalize), so the resulting tensor matches what the backbone
+    would see at eval time -- no random crops, no jitter, no Mixup,
+    no CutMix.
+
+    Args:
+        subset_idx: Length-``k`` array of CIFAR-10 train indices that
+            define this algorithm's coreset.
+
+    Returns:
+        ``(k, 3, 32, 32)`` float CPU tensor indexed by coreset
+        position ``[0, k)``. Consumed by the feature_distill aux for
+        clean-vs-clean kernel distillation: a separate backbone
+        forward on rows from this tensor produces clean student
+        embeddings whose cosine Gram is matched against the on-disk
+        clean teacher Gram.
+    """
+    cifar = torchvision.datasets.CIFAR10(
+        root=str(REPO_ROOT), train=True, download=False,
+    )
+    subset = Subset(cifar, [int(i) for i in subset_idx])
+    ds = spt.data.FromTorchDataset(
+        subset, names=["image", "label"], transform=_make_val_tf(),
+    )
+    return torch.stack([ds[i]["image"] for i in range(len(ds))], dim=0)
+
+
 def _make_forward_with_aux():
     """Build a LeJEPA-recon ``forward`` that also adds aux-head losses.
 
@@ -159,22 +194,33 @@ def _make_forward_with_aux():
             return out
         # FromTorchDataset adds sample_idx per item. After the two-view
         # collate, batch["sample_idx"] may be a list-of-tensors (one per
-        # view) or a single tensor; the per-view sample_idx for view 0
-        # gives the coreset position we need.
+        # view) or a single tensor; either view's sample_idx gives the
+        # coreset position (sample identity is shared across views).
         sidx = batch.get("sample_idx", None)
         if sidx is None:
             return out
         if isinstance(sidx, (list, tuple)):
             sidx = sidx[0]
-        # Take view-0 embeddings only: first B rows of the concatenated
-        # (V*B, D) tensor packed inside ``out["embedding"]``.
-        B = int(sidx.numel())
-        emb_v0 = out["embedding"][:B]
+        # Clean-vs-clean aux: index the preloaded un-augmented coreset
+        # images by sample_idx and run a single backbone forward to get
+        # a shared clean embedding that every aux head consumes. This
+        # bypasses the augmented + multi-view forward entirely so all
+        # aux targets (spectral_coords, bucket_ranks, leverage_score,
+        # home_bucket, feature_distill) align with the clean encoder
+        # state they were precomputed against. The buffer
+        # ``_aux_clean_images`` is registered with persistent=False so
+        # it auto-moves with the module and never lands in state dicts.
+        clean_buf = self._aux_clean_images
+        sidx_d = sidx.to(clean_buf.device, dtype=torch.long,
+                         non_blocking=True)
+        clean_imgs = clean_buf.index_select(0, sidx_d)
+        clean_emb = self.backbone(clean_imgs)
         targets_batch = index_targets(self.aux_targets, sidx)
         aux_total, aux_logs = aux_loss_terms(
-            emb_v0, self.aux_heads, targets_batch,
+            clean_emb, self.aux_heads, targets_batch,
             self.aux_specs, self.aux_lambdas,
         )
+
         out["loss"] = out["loss"] + aux_total
         for k, v in aux_logs.items():
             self.log(f"{stage}/aux_{k}", v,
@@ -265,6 +311,17 @@ def _train_one_coreset(args, subset_idx: np.ndarray, run_name: str,
         module.aux_specs = aux_specs
         module.aux_lambdas = aux_lambdas
         module._aux_active = True
+        # Clean-vs-clean aux: every active aux head consumes a single
+        # shared backbone forward on the un-augmented coreset images,
+        # so we preload them once per algorithm and register as a
+        # non-persistent buffer (auto-moved to GPU by Lightning, never
+        # serialized into the state dict).
+        clean_imgs = _load_clean_coreset_images(subset_idx)
+        module.register_buffer(
+            "_aux_clean_images", clean_imgs, persistent=False,
+        )
+        print(f"  [aux] preloaded {clean_imgs.shape[0]} clean coreset "
+              f"images (shared by all active aux heads)")
     else:
         module._aux_active = False
 
@@ -295,10 +352,28 @@ def _train_one_coreset(args, subset_idx: np.ndarray, run_name: str,
     )
     logger = CSVLogger(save_dir=str(LOG_DIR), name=run_name, version="")
 
+    callbacks: list[Callback] = [knn_probe, linear_probe, cap, ckpt_cb]
+    # Optional EMA shadow of the backbone. Saves to a per-coreset path
+    # so downstream eval can pick it up by (tag, algo, seed). When
+    # ``--probe-on-ema`` is set, the EMA callback also rewires
+    # ``pl_module.ema_backbone`` so the OnlineProbe / OnlineKNN read
+    # embeddings from the EMA shadow and the captured ``best_*`` values
+    # reflect EMA-weight quality. The BN-refresh pass after train end
+    # uses a tiny SimpleNamespace shim because we only have the
+    # train_dl, not a full spt.data.DataModule.
+    if args.ema_decay > 0.0:
+        ema_path = (CACHE_DIR / "coreset_ssl_backbones" / art.name
+                    / f"{algo}_s{args.seed}_ema.pt")
+        dm_shim = SimpleNamespace(train_dataloader=lambda: train_dl)
+        callbacks.append(EMABackboneCallback(
+            args.ema_decay, ema_path, dm_shim,
+            probe=args.probe_on_ema,
+        ))
+
     trainer = pl.Trainer(
         max_epochs=args.epochs,
         num_sanity_val_steps=0,
-        callbacks=[knn_probe, linear_probe, cap, ckpt_cb],
+        callbacks=callbacks,
         precision=args.precision,
         logger=logger,
         default_root_dir=str(LOG_DIR / run_name),
@@ -367,20 +442,22 @@ def main() -> None:
     #   greedy        -- greedy max-variance pick (diverse-but-noisy)
     #   leverage      -- ridge leverage-score sampling (importance weighted)
     #   spectral_rank -- greedy max-coverage on rank strata (uniform-ish)
-    g.add_argument("--algorithms", nargs="+", default=None,
+    #   random        -- random baseline
+    g.add_argument("--algorithms", nargs="+", default=["spectral_rank"],
                    choices=ALGO_CHOICES, metavar="ALGO",
                    help=("restrict to these algos (default: all under --artifacts). "
                          "Choices: "
                          "greedy=greedy max-variance, "
                          "leverage=ridge leverage sampling, "
-                         "spectral_rank=greedy max-coverage on rank strata"))
+                         "spectral_rank=greedy max-coverage on rank strata, "
+                         "random=random baseline"))
 
     g = ap.add_argument_group("trainer")
 
     # SSL pretraining epochs. 200 is the LeJEPA-recon default that
     # matches ssl_pretrain_recon.py on the full 50k. On a coreset the
     # online probe usually plateaus earlier; drop to 100 for smoke tests.
-    g.add_argument("--epochs",       type=int,   default=200)
+    g.add_argument("--epochs",       type=int,   default=1500)
 
     # Mini-batch size for SSL. 256 is the LeJEPA-recon recipe; the
     # sigreg/w1/w2 regularizer estimates uniformity *within* a batch,
@@ -429,13 +506,48 @@ def main() -> None:
     g.add_argument("--seed",         type=int,   default=0,
                    help="must match --seed at eval time (used in run-name lookup)")
 
+    # EMA shadow of the backbone (mirrors ssl_pretrain_recon.py).
+    # Parameter EMA via torch.optim.swa_utils.AveragedModel; BN running
+    # stats are refreshed over view 0 of the train loader at the end of
+    # training (BN buffers are not param-averaged, so without refresh
+    # the saved EMA backbone produces garbage embeddings). The saved
+    # state dict lands at
+    #   cache/coreset_ssl_backbones/<tag>/<algo>_s<seed>_ema.pt
+    # and matches the format produced by ssl_pretrain_recon.py so the
+    # downstream eval / probe scripts can load it unchanged.
+    # 0 (default) keeps the previous behavior: no EMA tracking,
+    # nothing extra saved. Typical: 0.999 (short runs), 0.9999 (long).
+    g.add_argument("--ema-decay",    type=float, default=0.999,
+                   dest="ema_decay",
+                   help="EMA decay for the backbone shadow "
+                        "(0 = disable EMA tracking and EMA save)")
+
+    # When True, the OnlineProbe and OnlineKNN read embeddings from the
+    # EMA shadow rather than the live backbone, so the captured
+    # ``best_linear_probe_top1`` / ``best_knn_acc`` reflect EMA-weight
+    # quality directly (which is what downstream eval will see when it
+    # loads the saved EMA state dict). Requires --ema-decay > 0.
+    g.add_argument("--probe-on-ema", action="store_true",
+                   dest="probe_on_ema",
+                   help="route OnlineProbe / OnlineKNN through EMA "
+                        "backbone (requires --ema-decay > 0)")
+
     # Auxiliary loss weights. Each attaches a separate nn.Linear head on
-    # the 512-D backbone embedding (view 0 only) and adds the head's
-    # per-target loss to the LeJEPA-recon total loss with the given
-    # lambda. 0.0 disables that head entirely (no forward pass, no
-    # parameters trained). Targets are loaded from
-    # <artifacts>/<algo>/aux_<name>.pt and indexed by ``sample_idx``
-    # (the coreset position auto-added by ``spt.data.FromTorchDataset``).
+    # the 512-D backbone embedding and adds the head's per-target loss
+    # to the LeJEPA-recon total loss with the given lambda. 0.0
+    # disables that head entirely (no parameters trained). Targets are
+    # loaded from <artifacts>/<algo>/aux_<name>.pt and indexed by
+    # ``sample_idx`` (the coreset position auto-added by
+    # ``spt.data.FromTorchDataset``).
+    #
+    # Clean-vs-clean: when any aux is active the trainer preloads the
+    # un-augmented coreset images into a module buffer and runs a
+    # single shared backbone forward on those clean rows per step.
+    # *That* clean embedding is what every aux head reads -- the
+    # augmented multi-view embeddings used for the LeJEPA-recon loss
+    # are never seen by aux. This keeps the heads aligned with the
+    # clean encoder state the on-disk targets were precomputed
+    # against, at the cost of one extra backbone forward per step.
     g_aux = ap.add_argument_group("auxiliary losses (lambda per aux target; 0=off)")
 
     # Regress projections onto the top eigenvectors of Phi^T Phi.
@@ -465,11 +577,17 @@ def main() -> None:
                        dest="aux_home_bucket",
                        help="weight for home_bucket aux (cross-entropy over bucket id; 0=off)")
 
-    # Regress standardized backbone features phi_i ("teacher distillation"
-    # from the encoder that built the coreset). Head: 512 -> D.
+    # In-batch kernel distillation from the encoder that built the
+    # coreset: match the cosine Gram of the student head's projection
+    # against the cosine Gram of the on-disk teacher features phi_i.
+    # Rotation-invariant on both sides; loss is MSE over the (B,B)
+    # Gram. Like the other aux heads, this rides on the shared
+    # clean-vs-clean forward (see group preamble), so both sides of
+    # the Gram are evaluated on clean inputs. Head: 512 -> D (the
+    # kernel itself is never materialized on disk).
     g_aux.add_argument("--aux-feature-distill", type=float, default=0.0,
                        dest="aux_feature_distill",
-                       help="weight for feature_distill aux (frozen-teacher feature MSE; 0=off)")
+                       help="weight for feature_distill aux (cosine-Gram MSE vs teacher phi_i; 0=off)")
 
     g = ap.add_argument_group("LeJEPA-recon hyperparameters (rarely changed)")
 
@@ -541,6 +659,9 @@ def main() -> None:
 
     args = ap.parse_args()
 
+    if args.probe_on_ema and not args.ema_decay > 0.0:
+        raise SystemExit("--probe-on-ema requires --ema-decay > 0")
+
     art = args.artifacts  # already a validated Path
     tag = art.name
     algos = args.algorithms or _discover_algos(art)
@@ -568,6 +689,8 @@ def main() -> None:
             "budget": int(len(idx)),
             "epochs": args.epochs,
             "seed": args.seed,
+            "ema_decay": float(args.ema_decay),
+            "probe_on_ema": bool(args.probe_on_ema),
             "aux_lambdas": aux_lambdas,
             "aux_active": sorted(metrics.pop("aux_active", [])),
             **metrics,

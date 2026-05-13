@@ -325,7 +325,7 @@ def train(
     if use_aux:
         # Local import keeps this script standalone-runnable; the aux
         # helper lives next to the coreset trainer that consumes it.
-        from _aux_losses import aux_loss_terms, index_targets  # type: ignore
+        from _aux_losses import aux_loss_terms  # type: ignore
 
         def _capture(_module, _inp, out):
             feat_cache["emb"] = out.flatten(1)
@@ -402,20 +402,14 @@ def train(
             if cutout_size > 0:
                 xb = cutout(xb, size=cutout_size)
             y_oh = F.one_hot(yb, num_classes).float()
-            # Coreset position `b` indexes the on-disk aux tensors
-            # (rows aligned to positions [0, n) by construction).
-            aux_batch: dict[str, torch.Tensor] = {}
-            if use_aux:
-                pos = torch.as_tensor(b, device=device, dtype=torch.long)
-                for name, t_full in aux_full.items():
-                    aux_batch[name] = t_full.index_select(0, pos)
-            # Mixup/CutMix blends image, label, and every aux target by
-            # the same lam + perm so the captured embedding aligns with
-            # the convex combination of aux targets.
-            xb, y_target, aux_batch = mixup_or_cutmix(
+            # Mixup/CutMix blends image and label for the main CE loss.
+            # Aux heads no longer ride through the mix -- they consume
+            # a separate clean forward (see below), so blending their
+            # on-disk clean targets here would mismatch the clean
+            # student embedding the aux loop runs on.
+            xb, y_target, _ = mixup_or_cutmix(
                 xb, y_oh, mixup_alpha=mixup_alpha,
                 cutmix_alpha=cutmix_alpha, mix_prob=mix_prob,
-                extras=aux_batch if use_aux else None,
             )
             xb = xb.contiguous(memory_format=torch.channels_last)
 
@@ -426,8 +420,24 @@ def train(
                 loss = ce
                 aux_logs: dict[str, float] = {}
                 if use_aux:
+                    # Clean-vs-clean aux: one shared forward through
+                    # the model on the un-augmented, un-mixed batch
+                    # produces a single clean student embedding that
+                    # every aux head consumes. Targets are the on-disk
+                    # rows indexed by coreset position ``b`` -- no
+                    # lam/perm blending. The clean forward repopulates
+                    # ``feat_cache["emb"]`` via the avgpool hook.
+                    xb_clean = normalize(X_t[b], device).contiguous(
+                        memory_format=torch.channels_last)
+                    _ = model(xb_clean)
+                    emb_clean = feat_cache["emb"]
+                    pos = torch.as_tensor(b, device=device, dtype=torch.long)
+                    aux_batch = {
+                        name: t_full.index_select(0, pos)
+                        for name, t_full in aux_full.items()
+                    }
                     aux_total, aux_logs = aux_loss_terms(
-                        feat_cache["emb"], aux_heads, aux_batch,
+                        emb_clean, aux_heads, aux_batch,
                         aux_specs, aux_lambdas,
                     )
                     loss = loss + aux_total

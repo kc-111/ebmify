@@ -79,7 +79,7 @@ def main() -> None:
               "'imagenet' uses torchvision IMAGENET1K_V1 weights."),
     )
     ap.add_argument(
-        "--budget-k", type=int, default=5000, dest="budget_k",
+        "--budget-k", type=int, default=500, dest="budget_k",
         help=("Coreset size k -- number of samples each algorithm selects "
               "from the 50k CIFAR-10 train set."),
     )

@@ -16,6 +16,8 @@ is a ready-made scalar with four jobs:
    manifold under overdamped Langevin.
 4. **OOD score.** $h(x)$ blows up where the training set never put
    mass — threshold it directly.
+5. **Coreset selection.** pruning the dataset into a smaller one with informative samples,
+   which is good for data efficiency and continual learning.
 
 The same closed-form $h$ delivers all four. The design lever is $\phi$:
 pick it to match the geometry of the data, and the formula does the rest.
@@ -130,6 +132,20 @@ otherwise dominates the Gram and puts the informative variation on the
 unit sphere, where the linear leverage score reads it consistently
 whether $\phi$ was trained for invariance (SSL, DINOv2), supervision
 (ResNet18), or reconstruction (VAE).
+
+## Coreset selection
+
+![coreset selection](example/out/coreset/supervised_resnet18_coreset_eval_accuracy.png)
+![ssl coreset selection](example/out/coreset/ssl_resnet18_recon_ema_ssl_coreset_eval_linprobe.png)
+
+We used 500 samples out of 50000 samples in CIFAR10 to train a resnet18 model. 
+Spectral rank and greedy are different strategies using the feature kernel.
+Spectral rank in this case has a marginal improvement over uniform sampling and leverage
+(see leverage score sampling) for CIFAR10, possibly due to the balanced classes in CIFAR10. 
+This shows that **spectral properties of the feature kernel are informative for dataset 
+compression**. The same applies to self supervised learning methods such as LeJEPA.
+Coreset selection can be extended to continual learning to retain informative data points, 
+and feature kernels  can be used to diagnose representation drift. 
 
 ## Quick start
 

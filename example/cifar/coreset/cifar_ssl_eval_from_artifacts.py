@@ -49,7 +49,7 @@ from _artifacts import (  # noqa: E402
 )
 
 ALGO_CHOICES = ["greedy", "leverage", "spectral_rank"]
-DEFAULT_TAG = "ssl_resnet18_recon"  # paired with cifar_ssl_train_from_artifacts.py
+DEFAULT_TAG = "ssl_resnet18_recon_ema"  # paired with cifar_ssl_train_from_artifacts.py
 
 
 class _Fmt(argparse.ArgumentDefaultsHelpFormatter,
