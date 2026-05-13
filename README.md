@@ -18,6 +18,8 @@ is a ready-made scalar with four jobs:
    mass — threshold it directly.
 5. **Coreset selection.** pruning the dataset into a smaller one with informative samples,
    which is good for data efficiency and continual learning.
+6. **(Next up) Hierarchical World Modelling.** We can construct the last layer $h(x_t, x_{t+1})$ to
+   encode causality then optimize the right $x_t$ that leads to $x_{t+1}$ given $x_{t-1}$. 
 
 The same closed-form $h$ delivers all four. The design lever is $\phi$:
 pick it to match the geometry of the data, and the formula does the rest.
