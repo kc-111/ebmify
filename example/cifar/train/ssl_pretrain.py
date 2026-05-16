@@ -315,7 +315,7 @@ class EMABackboneCallback(Callback):
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser()
-    p.add_argument("--regularizer", default="sigreg",
+    p.add_argument("--regularizer", default="w2",
                    choices=["sigreg", "w1", "w2"])
     p.add_argument("--lambd", type=float, default=0.05,
                    help="Weight on reg; (1 - lambd) weights invariance.")

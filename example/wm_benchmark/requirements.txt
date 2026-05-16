@@ -1,0 +1,30 @@
+# Isolated deps for example/wm_benchmark.
+#
+# Install in three steps:
+#
+#   # 1. Clone + install stable-worldmodel as a sibling, editable, with the
+#   #    [env] extra (brings ogbench, gymnasium[all] incl. dm_control, etc.)
+#   cd ~/Desktop
+#   git clone https://github.com/galilai-group/stable-worldmodel.git
+#   cd stable-worldmodel
+#   uv pip install -e '.[env]'     # or: <ebmify-venv>/bin/pip install -e '.[env]'
+#
+#   # 1b. swm/PushT-v1 uses pymunk 7's `space.on_collision` API. The [env]
+#   #     extra pins pymunk loosely; force >=7 explicitly:
+#   uv pip install 'pymunk>=7'
+#
+#   # 2. Our own thin extras (this file)
+#   cd /home/kevin-cheung/Desktop/ebmify
+#   uv pip install -r example/wm_benchmark/requirements.txt
+#
+#   # 3. Point swm's cache at this example's data/
+#   source example/wm_benchmark/scripts/env.sh
+#
+# stable-worldmodel already pins gymnasium / mujoco / pygame / pymunk / lance.
+# Don't double-pin those here. This file only lists deps for our own scripts/
+# wrappers.
+
+# Used by upstream visualization scripts (GIF/MP4 writing). Transitively pulled
+# in by gymnasium-robotics, but pinned here so the scripts/ wrappers don't
+# silently break if that transitive dep changes.
+imageio>=2.30

@@ -1,0 +1,12 @@
+# Copied verbatim from stable-worldmodel @ 463ab63517b043ca6c3753b01e34ea6f145497c6
+# Source: https://github.com/galilai-group/stable-worldmodel/blob/463ab63517b043ca6c3753b01e34ea6f145497c6/scripts/visualization/configs/world_model/iql.yaml
+# License: MIT (see example/wm_benchmark/ATTRIBUTION.md)
+defaults:
+  - _self_
+
+# Path to trained IQL model checkpoint (required)
+# Can be absolute path or relative to STABLEWM_HOME
+model_name: null
+
+history_size: 3
+num_preds: 1

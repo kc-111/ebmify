@@ -1,0 +1,12 @@
+# Copied verbatim from stable-worldmodel @ 463ab63517b043ca6c3753b01e34ea6f145497c6
+# Source: https://github.com/galilai-group/stable-worldmodel/blob/463ab63517b043ca6c3753b01e34ea6f145497c6/scripts/plan/config/solver/cem.yaml
+# License: MIT (see example/wm_benchmark/ATTRIBUTION.md)
+_target_: stable_worldmodel.solver.CEMSolver
+model: ???
+batch_size: 1
+num_samples: 300
+var_scale: 1.0
+n_steps: 30
+topk: 30
+device: "cuda"
+seed: ${seed}

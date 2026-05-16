@@ -133,7 +133,9 @@ backbones**: it strips out the uninformative mean direction that
 otherwise dominates the Gram and puts the informative variation on the
 unit sphere, where the linear leverage score reads it consistently
 whether $\phi$ was trained for invariance (SSL, DINOv2), supervision
-(ResNet18), or reconstruction (VAE).
+(ResNet18), or reconstruction (VAE). One note is that reconstruction
+loss applied to LeJEPA allows differentiation of inverted and noninverted
+images.
 
 ## Coreset selection
 

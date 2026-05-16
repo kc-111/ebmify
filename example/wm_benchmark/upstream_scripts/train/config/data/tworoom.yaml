@@ -1,0 +1,14 @@
+# Copied verbatim from stable-worldmodel @ 463ab63517b043ca6c3753b01e34ea6f145497c6
+# Source: https://github.com/galilai-group/stable-worldmodel/blob/463ab63517b043ca6c3753b01e34ea6f145497c6/scripts/train/config/data/tworoom.yaml
+# License: MIT (see example/wm_benchmark/ATTRIBUTION.md)
+dataset:
+  num_steps: ${eval:'${wm.num_preds} + ${wm.history_size}'}
+  frameskip: 5
+  name: tworoom.h5
+  keys_to_load:
+    - pixels
+    - action
+    - proprio
+  keys_to_cache:
+    - action
+    - proprio

@@ -1,0 +1,4 @@
+# Copied verbatim from stable-worldmodel @ 463ab63517b043ca6c3753b01e34ea6f145497c6
+# Source: https://github.com/galilai-group/stable-worldmodel/blob/463ab63517b043ca6c3753b01e34ea6f145497c6/scripts/visualization/configs/world_model/lewm.yaml
+# License: MIT (see example/wm_benchmark/ATTRIBUTION.md)
+checkpoint_path: ~/.stable_worldmodel/lewm-pusht

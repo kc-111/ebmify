@@ -7,7 +7,10 @@ DINOv2 / supervised-ResNet18 eval scripts:
  1. Gram from cifar10 train only.
  2. RFF bandwidth tuned on cifar10 test as held-out validation.
  3. Threshold = 0.95 quantile of h on the train Gram.
- 4. phi in {z, RFF(z), [z; RFF(z)]}, with balanced-acc report.
+ 4. phi in {z, RFF(z), [z; RFF(z)]} (+ optional [z; 1] via --with-bias,
+    optional norm-bias blocks; --with-dual-norm-bias = raw+centered (no RFF);
+    --with-combined-norm-bias adds RFF(z-μ); --with-energy-concentration =
+    max([z;1])/sum([z;1])).
 
 Usage:
     python example/cifar/ood/cifar_ssl_ood_threshold.py
@@ -88,6 +91,49 @@ def encode(model: nn.Module, x: torch.Tensor, *,
     return torch.cat(feats, dim=0)
 
 
+def _l2_rows(z: torch.Tensor, *, eps: float = 1e-8) -> torch.Tensor:
+    return z / z.norm(dim=-1, keepdim=True).clamp_min(eps)
+
+
+def phi_norm_with_norm(z: torch.Tensor,
+                       mu: torch.Tensor | None = None) -> torch.Tensor:
+    """phi(z) = [normalize([phi; 1]), ||phi||] with phi = z or z - mu."""
+    phi = z if mu is None else z - mu
+    r = phi.norm(dim=-1, keepdim=True).clamp_min(1e-8)
+    with_one = torch.cat(
+        [phi, torch.ones(z.shape[0], 1, device=z.device, dtype=z.dtype)],
+        dim=-1,
+    )
+    return torch.cat([_l2_rows(with_one), r], dim=-1)
+
+
+def phi_norm_with_norm_rff(z: torch.Tensor, rff: RFFLayer,
+                           mu: torch.Tensor | None = None) -> torch.Tensor:
+    """[norm([phi;1]); ||phi||; RFF(phi)] with phi = z or z - mu."""
+    phi = z if mu is None else z - mu
+    return torch.cat([phi_norm_with_norm(z, mu), rff(phi)], dim=-1)
+
+
+def phi_dual_norm_bias(z: torch.Tensor, mu: torch.Tensor) -> torch.Tensor:
+    """[norm([z;1]); ||z||; norm([z-mu;1]); ||z-mu||]."""
+    return torch.cat([phi_norm_with_norm(z), phi_norm_with_norm(z, mu)], dim=-1)
+
+
+def phi_combined_norm_centered_rff(z: torch.Tensor, rff: RFFLayer,
+                                   mu: torch.Tensor) -> torch.Tensor:
+    """[norm([z;1]); ||z||; norm([z-mu;1]); ||z-mu||; RFF(z-mu)]."""
+    return torch.cat([phi_dual_norm_bias(z, mu), rff(z - mu)], dim=-1)
+
+
+def phi_energy_concentration(z: torch.Tensor, *, eps: float = 1e-8) -> torch.Tensor:
+    """phi(z) = max([z;1]) / sum([z;1]) per sample, shape (B, 1)."""
+    v = torch.cat(
+        [z, torch.ones(z.shape[0], 1, device=z.device, dtype=z.dtype)],
+        dim=-1,
+    )
+    return v.amax(dim=-1, keepdim=True) / v.sum(dim=-1, keepdim=True).clamp_min(eps)
+
+
 def auroc(s_pos: np.ndarray, s_neg: np.ndarray) -> float:
     a = np.concatenate([s_pos, s_neg])
     labels = np.concatenate([np.ones_like(s_pos), np.zeros_like(s_neg)])
@@ -155,7 +201,9 @@ def tune_bandwidth(Z_train: torch.Tensor, Z_val: torch.Tensor, *,
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--ckpt", type=str, default="example/cifar/cache/cifar10_ssl_resnet18_recon_ema.pt",
+    ap.add_argument("--ckpt", type=str, 
+                    default="example/cifar/cache/cifar10_ssl_resnet18_recon_ema.pt",
+                    # default="example/cifar/cache/cifar10_ssl_resnet18.pt",  
                     help="Path to SSL ResNet18 backbone checkpoint.")
     ap.add_argument("--tag", type=str, default="",
                     help="Tag used at training time.")
@@ -176,6 +224,30 @@ def main() -> None:
                     help="L2-normalize features before building the Gram and "
                          "scoring. Removes ||z||^2 confound; leverage becomes "
                          "purely directional.")
+    ap.add_argument("--with-bias", action="store_true",
+                    help="Also evaluate phi = [z; 1] (append a constant bias "
+                         "column to features before the Gram / leverage score).")
+    ap.add_argument("--with-norm-bias", action="store_true",
+                    help="Also evaluate phi = [norm([z;1]); ||z||] on raw "
+                         "features, restoring ||z|| after unit-norm direction.")
+    ap.add_argument("--with-norm-bias-rff", action="store_true",
+                    help="Also evaluate phi = [norm([z;1]); ||z||; RFF(z)] on "
+                         "raw z (same ell* as other RFF specs).")
+    ap.add_argument("--with-centered-norm-bias", action="store_true",
+                    help="Also evaluate phi = [norm([z-mu;1]); ||z-mu||] on raw "
+                         "z (mu = train mean).")
+    ap.add_argument("--with-centered-norm-bias-rff", action="store_true",
+                    help="Also evaluate phi = [norm([z-mu;1]); ||z-mu||; RFF(z-mu)] "
+                         "on raw z.")
+    ap.add_argument("--with-dual-norm-bias", action="store_true",
+                    help="Also evaluate phi = [norm([z;1]); ||z||; norm([z-mu;1]); "
+                         "||z-mu||] on raw z (no RFF).")
+    ap.add_argument("--with-combined-norm-bias", action="store_true",
+                    help="Also evaluate phi = [norm([z;1]); ||z||; norm([z-mu;1]); "
+                         "||z-mu||; RFF(z-mu)] on raw z.")
+    ap.add_argument("--with-energy-concentration", action="store_true",
+                    help="Also evaluate phi = max([z;1]) / sum([z;1]) on raw z "
+                         "(scalar peak-mass ratio per sample).")
     args = ap.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -235,6 +307,16 @@ def main() -> None:
         print(f"  {name:>22}: {tuple(z.shape)}  ||z|| median="
               f"{z.norm(dim=1).median().item():.3f}")
 
+    Z_train_raw = Z_train
+    z_sources_raw = z_sources
+    need_mu = (
+        args.with_centered_norm_bias
+        or args.with_centered_norm_bias_rff
+        or args.with_dual_norm_bias
+        or args.with_combined_norm_bias
+    )
+    mu_train = Z_train_raw.mean(dim=0, keepdim=True) if need_mu else None
+
     if args.normalize:
         def _l2(z: torch.Tensor) -> torch.Tensor:
             return z / z.norm(dim=-1, keepdim=True).clamp_min(1e-8)
@@ -267,24 +349,86 @@ def main() -> None:
     print(f"\nfinal RFF length_scale = {rff.length_scale.tolist()}  "
           f"M = {args.M_rff}  ridge = {args.ridge}")
 
-    specs = [
-        ("phi = z",           lambda z: z),
-        ("phi = RFF(z)",      lambda z: rff(z)),
-        ("phi = [z; RFF(z)]", lambda z: torch.cat([z, rff(z)], dim=-1)),
+    # (name, phi_fn, use_raw): norm-bias uses raw z so ||z|| is meaningful.
+    specs: list[tuple[str, object, bool]] = [
+        ("phi = z",           lambda z: z, False),
+        ("phi = RFF(z)",      lambda z: rff(z), False),
+        ("phi = [z; RFF(z)]", lambda z: torch.cat([z, rff(z)], dim=-1), False),
     ]
+    if args.with_bias:
+        specs.insert(1, (
+            "phi = [z; 1]",
+            lambda z: torch.cat(
+                [z, torch.ones(z.shape[0], 1, device=z.device, dtype=z.dtype)],
+                dim=-1,
+            ),
+            False,
+        ))
+    if args.with_norm_bias:
+        specs.append((
+            "phi = [norm([z;1]); ||z||]",
+            phi_norm_with_norm,
+            True,
+        ))
+    if args.with_norm_bias_rff:
+        specs.append((
+            "phi = [norm([z;1]); ||z||; RFF(z)]",
+            lambda z, _rff=rff: phi_norm_with_norm_rff(z, _rff),
+            True,
+        ))
+    if args.with_centered_norm_bias:
+        assert mu_train is not None
+        mu = mu_train
+        specs.append((
+            "phi = [norm([z-μ;1]); ||z-μ||]",
+            lambda z, _mu=mu: phi_norm_with_norm(z, _mu),
+            True,
+        ))
+    if args.with_centered_norm_bias_rff:
+        assert mu_train is not None
+        mu = mu_train
+        specs.append((
+            "phi = [norm([z-μ;1]); ||z-μ||; RFF(z-μ)]",
+            lambda z, _rff=rff, _mu=mu: phi_norm_with_norm_rff(z, _rff, _mu),
+            True,
+        ))
+    if args.with_dual_norm_bias:
+        assert mu_train is not None
+        mu = mu_train
+        specs.append((
+            "phi = [norm(z);||z||;norm(z-μ);||z-μ||]",
+            lambda z, _mu=mu: phi_dual_norm_bias(z, _mu),
+            True,
+        ))
+    if args.with_combined_norm_bias:
+        assert mu_train is not None
+        mu = mu_train
+        specs.append((
+            "phi = [norm(z);||z||;norm(z-μ);||z-μ||;RFF(z-μ)]",
+            lambda z, _rff=rff, _mu=mu: phi_combined_norm_centered_rff(z, _rff, _mu),
+            True,
+        ))
+    if args.with_energy_concentration:
+        specs.append((
+            "phi = max([z;1])/sum([z;1])",
+            phi_energy_concentration,
+            True,
+        ))
     in_name = dataset
     n_phi = len(specs)
     base_label = dataset
 
     per_phi: list[dict] = []
-    for spec_name, phi_fn in specs:
-        h_fn, h_char, D = build_phi_leverage(phi_fn, Z_train, ridge=args.ridge)
+    for spec_name, phi_fn, use_raw in specs:
+        z_gram = Z_train_raw if use_raw else Z_train
+        z_eval = z_sources_raw if use_raw else z_sources
+        h_fn, h_char, D = build_phi_leverage(phi_fn, z_gram, ridge=args.ridge)
         rows: list[tuple[str, np.ndarray, str]] = []
         with torch.no_grad():
-            for src_name, z_src, color in z_sources:
+            for src_name, z_src, color in z_eval:
                 h_vals = h_fn(z_src).cpu().numpy() / h_char
                 rows.append((src_name, h_vals, color))
-            h_baseline = h_fn(Z_train).cpu().numpy() / h_char
+            h_baseline = h_fn(z_gram).cpu().numpy() / h_char
         tau = float(np.quantile(h_baseline, 0.95))
         per_phi.append({
             "spec_name": spec_name, "D": D, "h_char": float(h_char),
@@ -422,17 +566,57 @@ def main() -> None:
         ax.set_xlim(-0.02, 1.02); ax.set_ylim(-0.02, 1.02)
 
     norm_str = "  [L2-normalized features]" if args.normalize else ""
+    bias_str = "  [+ phi=[z;1]]" if args.with_bias else ""
+    norm_bias_str = "  [+ phi=[norm([z;1]);||z||]]" if args.with_norm_bias else ""
+    norm_bias_rff_str = (
+        "  [+ phi=[norm([z;1]);||z||;RFF]]" if args.with_norm_bias_rff else ""
+    )
+    cent_norm_bias_str = (
+        "  [+ phi=[norm([z-μ;1]);||z-μ||]]" if args.with_centered_norm_bias else ""
+    )
+    cent_norm_bias_rff_str = (
+        "  [+ phi=[norm([z-μ;1]);||z-μ||;RFF]]"
+        if args.with_centered_norm_bias_rff else ""
+    )
+    dual_norm_bias_str = (
+        "  [+ phi=dual norm-bias]" if args.with_dual_norm_bias else ""
+    )
+    combined_norm_bias_str = (
+        "  [+ phi=combined norm-bias+RFF]" if args.with_combined_norm_bias else ""
+    )
+    energy_conc_str = (
+        "  [+ phi=max([z;1])/sum([z;1])]" if args.with_energy_concentration else ""
+    )
     fig.suptitle(
         f"SSL (W1+inv) ResNet18 OOD on {in_name}: "
         f"tuned bandwidth on held-out test, tau = 0.95-quantile of train  "
-        f"z_dim={z_dim}  M_rff={args.M_rff}  ell*={ell_star:.3f}{norm_str}",
+        f"z_dim={z_dim}  M_rff={args.M_rff}  ell*={ell_star:.3f}"
+        f"{norm_str}{bias_str}{norm_bias_str}{norm_bias_rff_str}"
+        f"{cent_norm_bias_str}{cent_norm_bias_rff_str}"
+        f"{dual_norm_bias_str}{combined_norm_bias_str}{energy_conc_str}",
         fontsize=11,
     )
     fig.tight_layout()
     suffix = f"_{args.tag}" if args.tag else ""
     norm_suffix = "_norm" if args.normalize else ""
+    bias_suffix = "_bias" if args.with_bias else ""
+    norm_bias_suffix = "_normbias" if args.with_norm_bias else ""
+    norm_bias_rff_suffix = "_normbiasrff" if args.with_norm_bias_rff else ""
+    cent_norm_bias_suffix = "_centnormbias" if args.with_centered_norm_bias else ""
+    cent_norm_bias_rff_suffix = (
+        "_centnormbiasrff" if args.with_centered_norm_bias_rff else ""
+    )
+    dual_norm_bias_suffix = "_dualnormbias" if args.with_dual_norm_bias else ""
+    combined_norm_bias_suffix = (
+        "_combnormbias" if args.with_combined_norm_bias else ""
+    )
+    energy_conc_suffix = "_energyconc" if args.with_energy_concentration else ""
     out = (REPO_ROOT / "example" / "out" / "cifar"
-           / f"cifar10_ssl_resnet18{suffix}{norm_suffix}_ood_threshold.png")
+           / f"cifar10_ssl_resnet18{suffix}{norm_suffix}{bias_suffix}"
+           f"{norm_bias_suffix}{norm_bias_rff_suffix}"
+           f"{cent_norm_bias_suffix}{cent_norm_bias_rff_suffix}"
+           f"{dual_norm_bias_suffix}{combined_norm_bias_suffix}"
+           f"{energy_conc_suffix}_ood_threshold.png")
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, dpi=120, bbox_inches="tight")
     print(f"\nsaved {out}")

@@ -193,6 +193,7 @@ def forward(self, batch, stage):
         return out
 
     live_emb = [self.backbone(v["image"]) for v in views]
+    # live_emb = [live_emb / (live_emb.norm(dim=-1, keepdim=True) + 1e-6) for live_emb in live_emb]
     live_z = [self.projector(e) for e in live_emb]
 
     z_stack = torch.stack(live_z, dim=0)        # (V, B, D_proj)
@@ -346,7 +347,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--dec-base", type=int, default=256, dest="dec_base",
                    help="Decoder channel width at the 2x2 stem.")
     p.add_argument("--batch-size", type=int, default=512)
-    p.add_argument("--epochs", type=int, default=2000)
+    p.add_argument("--epochs", type=int, default=1000)
     p.add_argument("--lr", type=float, default=5e-4)
     p.add_argument("--weight-decay", type=float, default=5e-4)
     p.add_argument("--num-workers", type=int, default=8)

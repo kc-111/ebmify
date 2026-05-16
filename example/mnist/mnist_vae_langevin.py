@@ -56,7 +56,7 @@ def build_z_leverage(
                 [Phi, torch.ones(Phi.shape[0], 1, device=device)], dim=-1,
             )
         D = Phi.shape[1]
-        for bump in (1.0, 10.0, 100.0, 1000.0):
+        for bump in (1.0, 10.0, 100.0, 1000.0, 10000.0, 100000.0):
             try:
                 A = Phi.T @ Phi + ridge * bump * torch.eye(D, device=device)
                 L = torch.linalg.cholesky(A)
@@ -92,7 +92,7 @@ def build_phi_leverage(
                 [Phi, torch.ones(Phi.shape[0], 1, device=device)], dim=-1,
             )
         D = Phi.shape[1]
-        for bump in (1.0, 10.0, 100.0, 1000.0):
+        for bump in (1.0, 10.0, 100.0, 1000.0, 10000.0, 100000.0):
             try:
                 A = Phi.T @ Phi + ridge * bump * torch.eye(D, device=device)
                 L = torch.linalg.cholesky(A)
