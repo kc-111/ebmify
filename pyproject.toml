@@ -22,6 +22,8 @@ dependencies = [
     "scipy",
     "scikit-learn",
     "matplotlib",
+    "tiktoken",
+    "pyarrow",
 ]
 
 [tool.setuptools.packages.find]

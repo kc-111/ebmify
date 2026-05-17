@@ -26,5 +26,13 @@
 
 # Used by upstream visualization scripts (GIF/MP4 writing). Transitively pulled
 # in by gymnasium-robotics, but pinned here so the scripts/ wrappers don't
-# silently break if that transitive dep changes.
+# silently break if that transitive dep changes. scripts/eval/recorder.py
+# uses the ffmpeg plugin to dump rollout frames to mp4.
 imageio>=2.30
+imageio-ffmpeg>=0.4
+
+# scripts/data/collect_antmaze_minari.py pulls D4RL antmaze trajectories
+# via minari and re-renders them through gymnasium-robotics' AntMaze envs.
+# `[hdf5]` extra is required because minari's D4RL datasets are HDF5-backed.
+minari[hdf5]>=0.5
+gymnasium-robotics>=1.3

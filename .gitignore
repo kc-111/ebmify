@@ -10,10 +10,18 @@ dist/
 MNIST/
 cifar-10-batches-py/
 cifar-100-python/
+openwebtext/
+example/wm_benchmark/data/
 
 # Outputs and caches
 # example/out/
 example/mnist/cache/
 example/cifar/cache/
 example/cifar/logs/
+example/openwebtext_lm/cache/
+example/openwebtext_lm/logs/
+example/openwebtext_lm/*.bin
+example/dka/cache/
+example/dka/logs/
+example/dka/plots/
 *.ckpt

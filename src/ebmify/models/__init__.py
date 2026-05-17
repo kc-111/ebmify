@@ -19,6 +19,7 @@ from .conv import (
     ConvResVAE,
     SpatialRFFLayer,
 )
+from .dka import DKABlock, DKALayer, SoftmaxAttentionBlock
 from .fc import FCNet, RFFLayer
 
 __all__ = [
@@ -29,6 +30,9 @@ __all__ = [
     "ConvDecoder",
     "ConvResVAE",
     "SpatialRFFLayer",
+    "DKALayer",
+    "DKABlock",
+    "SoftmaxAttentionBlock",
     "FitConfig",
     "RegConfig",
     "NoiseConfig",
